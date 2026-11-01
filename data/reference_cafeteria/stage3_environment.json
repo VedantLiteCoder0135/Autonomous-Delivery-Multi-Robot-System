@@ -1,0 +1,1741 @@
+{
+  "floor_regions": [
+    {
+      "name": "FLOOR_arm",
+      "rect": {
+        "min_x": 0.0,
+        "max_x": 19.0,
+        "min_y": 0.0,
+        "max_y": 7.5
+      }
+    },
+    {
+      "name": "FLOOR_wing",
+      "rect": {
+        "min_x": 9.0,
+        "max_x": 19.0,
+        "min_y": 7.5,
+        "max_y": 17.5
+      }
+    }
+  ],
+  "walls": [
+    {
+      "name": "WALL_service_tea_sandwich_juice",
+      "rect": {
+        "min_x": 0.0,
+        "max_x": 19.0,
+        "min_y": -0.08,
+        "max_y": 0.08
+      }
+    },
+    {
+      "name": "WALL_main_course_side",
+      "rect": {
+        "min_x": -0.08,
+        "max_x": 0.08,
+        "min_y": 0.0,
+        "max_y": 7.5
+      }
+    },
+    {
+      "name": "WALL_notch_before_main_entry",
+      "rect": {
+        "min_x": 0.0,
+        "max_x": 3.1,
+        "min_y": 7.42,
+        "max_y": 7.58
+      }
+    },
+    {
+      "name": "WALL_notch_after_main_entry",
+      "rect": {
+        "min_x": 5.1,
+        "max_x": 9.0,
+        "min_y": 7.42,
+        "max_y": 7.58
+      }
+    },
+    {
+      "name": "WALL_inner_L_below_T11_sliding_door",
+      "rect": {
+        "min_x": 8.92,
+        "max_x": 9.08,
+        "min_y": 7.5,
+        "max_y": 8.1
+      }
+    },
+    {
+      "name": "WALL_inner_L_above_T11_sliding_door",
+      "rect": {
+        "min_x": 8.92,
+        "max_x": 9.08,
+        "min_y": 9.9,
+        "max_y": 17.5
+      }
+    },
+    {
+      "name": "WALL_wing_far_end",
+      "rect": {
+        "min_x": 9.0,
+        "max_x": 19.0,
+        "min_y": 17.42,
+        "max_y": 17.58
+      }
+    },
+    {
+      "name": "WALL_right_below_side_gate_1",
+      "rect": {
+        "min_x": 18.92,
+        "max_x": 19.08,
+        "min_y": 0.0,
+        "max_y": 3.0
+      }
+    },
+    {
+      "name": "WALL_right_between_side_gates",
+      "rect": {
+        "min_x": 18.92,
+        "max_x": 19.08,
+        "min_y": 4.6,
+        "max_y": 10.299999
+      }
+    },
+    {
+      "name": "WALL_right_above_side_gate_2",
+      "rect": {
+        "min_x": 18.92,
+        "max_x": 19.08,
+        "min_y": 11.9,
+        "max_y": 17.5
+      }
+    }
+  ],
+  "pillars": [
+    {
+      "name": "PILLAR_01",
+      "rect": {
+        "min_x": 8.81,
+        "max_x": 9.19,
+        "min_y": 7.31,
+        "max_y": 7.69
+      }
+    },
+    {
+      "name": "PILLAR_02",
+      "rect": {
+        "min_x": 13.31,
+        "max_x": 13.69,
+        "min_y": 7.31,
+        "max_y": 7.69
+      }
+    },
+    {
+      "name": "PILLAR_03",
+      "rect": {
+        "min_x": 8.81,
+        "max_x": 9.19,
+        "min_y": 12.81,
+        "max_y": 13.19
+      }
+    },
+    {
+      "name": "PILLAR_04",
+      "rect": {
+        "min_x": 13.31,
+        "max_x": 13.69,
+        "min_y": 12.81,
+        "max_y": 13.19
+      }
+    },
+    {
+      "name": "PILLAR_05",
+      "rect": {
+        "min_x": 3.81,
+        "max_x": 4.19,
+        "min_y": 4.11,
+        "max_y": 4.49
+      }
+    },
+    {
+      "name": "PILLAR_06",
+      "rect": {
+        "min_x": 8.81,
+        "max_x": 9.19,
+        "min_y": 4.11,
+        "max_y": 4.49
+      }
+    }
+  ],
+  "tables": [
+    {
+      "table_id": "T03",
+      "rect": {
+        "min_x": 9.889999,
+        "max_x": 10.91,
+        "min_y": 2.83,
+        "max_y": 3.47
+      }
+    },
+    {
+      "table_id": "T04",
+      "rect": {
+        "min_x": 13.09,
+        "max_x": 14.110001,
+        "min_y": 2.83,
+        "max_y": 3.47
+      }
+    },
+    {
+      "table_id": "T05",
+      "rect": {
+        "min_x": 15.99,
+        "max_x": 17.01,
+        "min_y": 2.83,
+        "max_y": 3.47
+      }
+    },
+    {
+      "table_id": "T08",
+      "rect": {
+        "min_x": 9.889999,
+        "max_x": 10.91,
+        "min_y": 5.48,
+        "max_y": 6.12
+      }
+    },
+    {
+      "table_id": "T09",
+      "rect": {
+        "min_x": 13.09,
+        "max_x": 14.110001,
+        "min_y": 5.48,
+        "max_y": 6.12
+      }
+    },
+    {
+      "table_id": "T10",
+      "rect": {
+        "min_x": 15.99,
+        "max_x": 17.01,
+        "min_y": 5.48,
+        "max_y": 6.12
+      }
+    },
+    {
+      "table_id": "T11",
+      "rect": {
+        "min_x": 10.389999,
+        "max_x": 11.41,
+        "min_y": 8.68,
+        "max_y": 9.32
+      }
+    },
+    {
+      "table_id": "T12",
+      "rect": {
+        "min_x": 13.49,
+        "max_x": 14.51,
+        "min_y": 8.68,
+        "max_y": 9.32
+      }
+    },
+    {
+      "table_id": "T13",
+      "rect": {
+        "min_x": 16.49,
+        "max_x": 17.51,
+        "min_y": 8.68,
+        "max_y": 9.32
+      }
+    },
+    {
+      "table_id": "T14",
+      "rect": {
+        "min_x": 10.389999,
+        "max_x": 11.41,
+        "min_y": 10.93,
+        "max_y": 11.57
+      }
+    },
+    {
+      "table_id": "T15",
+      "rect": {
+        "min_x": 13.49,
+        "max_x": 14.51,
+        "min_y": 10.93,
+        "max_y": 11.57
+      }
+    },
+    {
+      "table_id": "T16",
+      "rect": {
+        "min_x": 16.49,
+        "max_x": 17.51,
+        "min_y": 10.93,
+        "max_y": 11.57
+      }
+    },
+    {
+      "table_id": "T17",
+      "rect": {
+        "min_x": 10.389999,
+        "max_x": 11.41,
+        "min_y": 13.18,
+        "max_y": 13.82
+      }
+    },
+    {
+      "table_id": "T18",
+      "rect": {
+        "min_x": 13.49,
+        "max_x": 14.51,
+        "min_y": 13.18,
+        "max_y": 13.82
+      }
+    },
+    {
+      "table_id": "T19",
+      "rect": {
+        "min_x": 16.49,
+        "max_x": 17.51,
+        "min_y": 13.18,
+        "max_y": 13.82
+      }
+    },
+    {
+      "table_id": "T20",
+      "rect": {
+        "min_x": 10.389999,
+        "max_x": 11.41,
+        "min_y": 15.43,
+        "max_y": 16.07
+      }
+    },
+    {
+      "table_id": "T21",
+      "rect": {
+        "min_x": 13.49,
+        "max_x": 14.51,
+        "min_y": 15.43,
+        "max_y": 16.07
+      }
+    },
+    {
+      "table_id": "T22",
+      "rect": {
+        "min_x": 16.49,
+        "max_x": 17.51,
+        "min_y": 15.43,
+        "max_y": 16.07
+      }
+    }
+  ],
+  "chairs": [
+    {
+      "name": "T03_N_SEAT",
+      "parent_table": "T03",
+      "rect": {
+        "min_x": 10.205,
+        "max_x": 10.594999,
+        "min_y": 3.605,
+        "max_y": 3.995
+      }
+    },
+    {
+      "name": "T03_S_SEAT",
+      "parent_table": "T03",
+      "rect": {
+        "min_x": 10.205,
+        "max_x": 10.594999,
+        "min_y": 2.305,
+        "max_y": 2.695
+      }
+    },
+    {
+      "name": "T03_E_SEAT",
+      "parent_table": "T03",
+      "rect": {
+        "min_x": 11.045,
+        "max_x": 11.434999,
+        "min_y": 2.955,
+        "max_y": 3.345
+      }
+    },
+    {
+      "name": "T03_W_SEAT",
+      "parent_table": "T03",
+      "rect": {
+        "min_x": 9.365001,
+        "max_x": 9.755,
+        "min_y": 2.955,
+        "max_y": 3.345
+      }
+    },
+    {
+      "name": "T04_N_SEAT",
+      "parent_table": "T04",
+      "rect": {
+        "min_x": 13.405001,
+        "max_x": 13.795,
+        "min_y": 3.605,
+        "max_y": 3.995
+      }
+    },
+    {
+      "name": "T04_S_SEAT",
+      "parent_table": "T04",
+      "rect": {
+        "min_x": 13.405001,
+        "max_x": 13.795,
+        "min_y": 2.305,
+        "max_y": 2.695
+      }
+    },
+    {
+      "name": "T04_E_SEAT",
+      "parent_table": "T04",
+      "rect": {
+        "min_x": 14.245,
+        "max_x": 14.634999,
+        "min_y": 2.955,
+        "max_y": 3.345
+      }
+    },
+    {
+      "name": "T04_W_SEAT",
+      "parent_table": "T04",
+      "rect": {
+        "min_x": 12.565001,
+        "max_x": 12.955,
+        "min_y": 2.955,
+        "max_y": 3.345
+      }
+    },
+    {
+      "name": "T05_N_SEAT",
+      "parent_table": "T05",
+      "rect": {
+        "min_x": 16.305,
+        "max_x": 16.695,
+        "min_y": 3.605,
+        "max_y": 3.995
+      }
+    },
+    {
+      "name": "T05_S_SEAT",
+      "parent_table": "T05",
+      "rect": {
+        "min_x": 16.305,
+        "max_x": 16.695,
+        "min_y": 2.305,
+        "max_y": 2.695
+      }
+    },
+    {
+      "name": "T05_E_SEAT",
+      "parent_table": "T05",
+      "rect": {
+        "min_x": 17.145,
+        "max_x": 17.535,
+        "min_y": 2.955,
+        "max_y": 3.345
+      }
+    },
+    {
+      "name": "T05_W_SEAT",
+      "parent_table": "T05",
+      "rect": {
+        "min_x": 15.465,
+        "max_x": 15.855,
+        "min_y": 2.955,
+        "max_y": 3.345
+      }
+    },
+    {
+      "name": "T08_N_SEAT",
+      "parent_table": "T08",
+      "rect": {
+        "min_x": 10.205,
+        "max_x": 10.594999,
+        "min_y": 6.255,
+        "max_y": 6.645
+      }
+    },
+    {
+      "name": "T08_S_SEAT",
+      "parent_table": "T08",
+      "rect": {
+        "min_x": 10.205,
+        "max_x": 10.594999,
+        "min_y": 4.955,
+        "max_y": 5.345
+      }
+    },
+    {
+      "name": "T08_E_SEAT",
+      "parent_table": "T08",
+      "rect": {
+        "min_x": 11.045,
+        "max_x": 11.434999,
+        "min_y": 5.605,
+        "max_y": 5.995
+      }
+    },
+    {
+      "name": "T08_W_SEAT",
+      "parent_table": "T08",
+      "rect": {
+        "min_x": 9.365001,
+        "max_x": 9.755,
+        "min_y": 5.605,
+        "max_y": 5.995
+      }
+    },
+    {
+      "name": "T09_N_SEAT",
+      "parent_table": "T09",
+      "rect": {
+        "min_x": 13.405001,
+        "max_x": 13.795,
+        "min_y": 6.255,
+        "max_y": 6.645
+      }
+    },
+    {
+      "name": "T09_S_SEAT",
+      "parent_table": "T09",
+      "rect": {
+        "min_x": 13.405001,
+        "max_x": 13.795,
+        "min_y": 4.955,
+        "max_y": 5.345
+      }
+    },
+    {
+      "name": "T09_E_SEAT",
+      "parent_table": "T09",
+      "rect": {
+        "min_x": 14.245,
+        "max_x": 14.634999,
+        "min_y": 5.605,
+        "max_y": 5.995
+      }
+    },
+    {
+      "name": "T09_W_SEAT",
+      "parent_table": "T09",
+      "rect": {
+        "min_x": 12.565001,
+        "max_x": 12.955,
+        "min_y": 5.605,
+        "max_y": 5.995
+      }
+    },
+    {
+      "name": "T10_N_SEAT",
+      "parent_table": "T10",
+      "rect": {
+        "min_x": 16.305,
+        "max_x": 16.695,
+        "min_y": 6.255,
+        "max_y": 6.645
+      }
+    },
+    {
+      "name": "T10_S_SEAT",
+      "parent_table": "T10",
+      "rect": {
+        "min_x": 16.305,
+        "max_x": 16.695,
+        "min_y": 4.955,
+        "max_y": 5.345
+      }
+    },
+    {
+      "name": "T10_E_SEAT",
+      "parent_table": "T10",
+      "rect": {
+        "min_x": 17.145,
+        "max_x": 17.535,
+        "min_y": 5.605,
+        "max_y": 5.995
+      }
+    },
+    {
+      "name": "T10_W_SEAT",
+      "parent_table": "T10",
+      "rect": {
+        "min_x": 15.465,
+        "max_x": 15.855,
+        "min_y": 5.605,
+        "max_y": 5.995
+      }
+    },
+    {
+      "name": "T11_N_SEAT",
+      "parent_table": "T11",
+      "rect": {
+        "min_x": 10.705,
+        "max_x": 11.094999,
+        "min_y": 9.455,
+        "max_y": 9.844999
+      }
+    },
+    {
+      "name": "T11_S_SEAT",
+      "parent_table": "T11",
+      "rect": {
+        "min_x": 10.705,
+        "max_x": 11.094999,
+        "min_y": 8.155001,
+        "max_y": 8.545
+      }
+    },
+    {
+      "name": "T11_E_SEAT",
+      "parent_table": "T11",
+      "rect": {
+        "min_x": 11.545,
+        "max_x": 11.934999,
+        "min_y": 8.805,
+        "max_y": 9.195
+      }
+    },
+    {
+      "name": "T11_W_SEAT",
+      "parent_table": "T11",
+      "rect": {
+        "min_x": 9.865001,
+        "max_x": 10.255,
+        "min_y": 8.805,
+        "max_y": 9.195
+      }
+    },
+    {
+      "name": "T12_N_SEAT",
+      "parent_table": "T12",
+      "rect": {
+        "min_x": 13.805,
+        "max_x": 14.195,
+        "min_y": 9.455,
+        "max_y": 9.844999
+      }
+    },
+    {
+      "name": "T12_S_SEAT",
+      "parent_table": "T12",
+      "rect": {
+        "min_x": 13.805,
+        "max_x": 14.195,
+        "min_y": 8.155001,
+        "max_y": 8.545
+      }
+    },
+    {
+      "name": "T12_E_SEAT",
+      "parent_table": "T12",
+      "rect": {
+        "min_x": 14.645,
+        "max_x": 15.035,
+        "min_y": 8.805,
+        "max_y": 9.195
+      }
+    },
+    {
+      "name": "T12_W_SEAT",
+      "parent_table": "T12",
+      "rect": {
+        "min_x": 12.965,
+        "max_x": 13.355,
+        "min_y": 8.805,
+        "max_y": 9.195
+      }
+    },
+    {
+      "name": "T13_N_SEAT",
+      "parent_table": "T13",
+      "rect": {
+        "min_x": 16.805,
+        "max_x": 17.195,
+        "min_y": 9.455,
+        "max_y": 9.844999
+      }
+    },
+    {
+      "name": "T13_S_SEAT",
+      "parent_table": "T13",
+      "rect": {
+        "min_x": 16.805,
+        "max_x": 17.195,
+        "min_y": 8.155001,
+        "max_y": 8.545
+      }
+    },
+    {
+      "name": "T13_E_SEAT",
+      "parent_table": "T13",
+      "rect": {
+        "min_x": 17.645,
+        "max_x": 18.035,
+        "min_y": 8.805,
+        "max_y": 9.195
+      }
+    },
+    {
+      "name": "T13_W_SEAT",
+      "parent_table": "T13",
+      "rect": {
+        "min_x": 15.965,
+        "max_x": 16.355,
+        "min_y": 8.805,
+        "max_y": 9.195
+      }
+    },
+    {
+      "name": "T14_N_SEAT",
+      "parent_table": "T14",
+      "rect": {
+        "min_x": 10.705,
+        "max_x": 11.094999,
+        "min_y": 11.705,
+        "max_y": 12.094999
+      }
+    },
+    {
+      "name": "T14_S_SEAT",
+      "parent_table": "T14",
+      "rect": {
+        "min_x": 10.705,
+        "max_x": 11.094999,
+        "min_y": 10.405001,
+        "max_y": 10.795
+      }
+    },
+    {
+      "name": "T14_E_SEAT",
+      "parent_table": "T14",
+      "rect": {
+        "min_x": 11.545,
+        "max_x": 11.934999,
+        "min_y": 11.055,
+        "max_y": 11.445
+      }
+    },
+    {
+      "name": "T14_W_SEAT",
+      "parent_table": "T14",
+      "rect": {
+        "min_x": 9.865001,
+        "max_x": 10.255,
+        "min_y": 11.055,
+        "max_y": 11.445
+      }
+    },
+    {
+      "name": "T15_N_SEAT",
+      "parent_table": "T15",
+      "rect": {
+        "min_x": 13.805,
+        "max_x": 14.195,
+        "min_y": 11.705,
+        "max_y": 12.094999
+      }
+    },
+    {
+      "name": "T15_S_SEAT",
+      "parent_table": "T15",
+      "rect": {
+        "min_x": 13.805,
+        "max_x": 14.195,
+        "min_y": 10.405001,
+        "max_y": 10.795
+      }
+    },
+    {
+      "name": "T15_E_SEAT",
+      "parent_table": "T15",
+      "rect": {
+        "min_x": 14.645,
+        "max_x": 15.035,
+        "min_y": 11.055,
+        "max_y": 11.445
+      }
+    },
+    {
+      "name": "T15_W_SEAT",
+      "parent_table": "T15",
+      "rect": {
+        "min_x": 12.965,
+        "max_x": 13.355,
+        "min_y": 11.055,
+        "max_y": 11.445
+      }
+    },
+    {
+      "name": "T16_N_SEAT",
+      "parent_table": "T16",
+      "rect": {
+        "min_x": 16.805,
+        "max_x": 17.195,
+        "min_y": 11.705,
+        "max_y": 12.094999
+      }
+    },
+    {
+      "name": "T16_S_SEAT",
+      "parent_table": "T16",
+      "rect": {
+        "min_x": 16.805,
+        "max_x": 17.195,
+        "min_y": 10.405001,
+        "max_y": 10.795
+      }
+    },
+    {
+      "name": "T16_E_SEAT",
+      "parent_table": "T16",
+      "rect": {
+        "min_x": 17.645,
+        "max_x": 18.035,
+        "min_y": 11.055,
+        "max_y": 11.445
+      }
+    },
+    {
+      "name": "T16_W_SEAT",
+      "parent_table": "T16",
+      "rect": {
+        "min_x": 15.965,
+        "max_x": 16.355,
+        "min_y": 11.055,
+        "max_y": 11.445
+      }
+    },
+    {
+      "name": "T17_N_SEAT",
+      "parent_table": "T17",
+      "rect": {
+        "min_x": 10.705,
+        "max_x": 11.094999,
+        "min_y": 13.955,
+        "max_y": 14.344999
+      }
+    },
+    {
+      "name": "T17_S_SEAT",
+      "parent_table": "T17",
+      "rect": {
+        "min_x": 10.705,
+        "max_x": 11.094999,
+        "min_y": 12.655001,
+        "max_y": 13.045
+      }
+    },
+    {
+      "name": "T17_E_SEAT",
+      "parent_table": "T17",
+      "rect": {
+        "min_x": 11.545,
+        "max_x": 11.934999,
+        "min_y": 13.305,
+        "max_y": 13.695
+      }
+    },
+    {
+      "name": "T17_W_SEAT",
+      "parent_table": "T17",
+      "rect": {
+        "min_x": 9.865001,
+        "max_x": 10.255,
+        "min_y": 13.305,
+        "max_y": 13.695
+      }
+    },
+    {
+      "name": "T18_N_SEAT",
+      "parent_table": "T18",
+      "rect": {
+        "min_x": 13.805,
+        "max_x": 14.195,
+        "min_y": 13.955,
+        "max_y": 14.344999
+      }
+    },
+    {
+      "name": "T18_S_SEAT",
+      "parent_table": "T18",
+      "rect": {
+        "min_x": 13.805,
+        "max_x": 14.195,
+        "min_y": 12.655001,
+        "max_y": 13.045
+      }
+    },
+    {
+      "name": "T18_E_SEAT",
+      "parent_table": "T18",
+      "rect": {
+        "min_x": 14.645,
+        "max_x": 15.035,
+        "min_y": 13.305,
+        "max_y": 13.695
+      }
+    },
+    {
+      "name": "T18_W_SEAT",
+      "parent_table": "T18",
+      "rect": {
+        "min_x": 12.965,
+        "max_x": 13.355,
+        "min_y": 13.305,
+        "max_y": 13.695
+      }
+    },
+    {
+      "name": "T19_N_SEAT",
+      "parent_table": "T19",
+      "rect": {
+        "min_x": 16.805,
+        "max_x": 17.195,
+        "min_y": 13.955,
+        "max_y": 14.344999
+      }
+    },
+    {
+      "name": "T19_S_SEAT",
+      "parent_table": "T19",
+      "rect": {
+        "min_x": 16.805,
+        "max_x": 17.195,
+        "min_y": 12.655001,
+        "max_y": 13.045
+      }
+    },
+    {
+      "name": "T19_E_SEAT",
+      "parent_table": "T19",
+      "rect": {
+        "min_x": 17.645,
+        "max_x": 18.035,
+        "min_y": 13.305,
+        "max_y": 13.695
+      }
+    },
+    {
+      "name": "T19_W_SEAT",
+      "parent_table": "T19",
+      "rect": {
+        "min_x": 15.965,
+        "max_x": 16.355,
+        "min_y": 13.305,
+        "max_y": 13.695
+      }
+    },
+    {
+      "name": "T20_N_SEAT",
+      "parent_table": "T20",
+      "rect": {
+        "min_x": 10.705,
+        "max_x": 11.094999,
+        "min_y": 16.205,
+        "max_y": 16.594999
+      }
+    },
+    {
+      "name": "T20_S_SEAT",
+      "parent_table": "T20",
+      "rect": {
+        "min_x": 10.705,
+        "max_x": 11.094999,
+        "min_y": 14.905001,
+        "max_y": 15.295
+      }
+    },
+    {
+      "name": "T20_E_SEAT",
+      "parent_table": "T20",
+      "rect": {
+        "min_x": 11.545,
+        "max_x": 11.934999,
+        "min_y": 15.555,
+        "max_y": 15.945
+      }
+    },
+    {
+      "name": "T20_W_SEAT",
+      "parent_table": "T20",
+      "rect": {
+        "min_x": 9.865001,
+        "max_x": 10.255,
+        "min_y": 15.555,
+        "max_y": 15.945
+      }
+    },
+    {
+      "name": "T21_N_SEAT",
+      "parent_table": "T21",
+      "rect": {
+        "min_x": 13.805,
+        "max_x": 14.195,
+        "min_y": 16.205,
+        "max_y": 16.594999
+      }
+    },
+    {
+      "name": "T21_S_SEAT",
+      "parent_table": "T21",
+      "rect": {
+        "min_x": 13.805,
+        "max_x": 14.195,
+        "min_y": 14.905001,
+        "max_y": 15.295
+      }
+    },
+    {
+      "name": "T21_E_SEAT",
+      "parent_table": "T21",
+      "rect": {
+        "min_x": 14.645,
+        "max_x": 15.035,
+        "min_y": 15.555,
+        "max_y": 15.945
+      }
+    },
+    {
+      "name": "T21_W_SEAT",
+      "parent_table": "T21",
+      "rect": {
+        "min_x": 12.965,
+        "max_x": 13.355,
+        "min_y": 15.555,
+        "max_y": 15.945
+      }
+    },
+    {
+      "name": "T22_N_SEAT",
+      "parent_table": "T22",
+      "rect": {
+        "min_x": 16.805,
+        "max_x": 17.195,
+        "min_y": 16.205,
+        "max_y": 16.594999
+      }
+    },
+    {
+      "name": "T22_S_SEAT",
+      "parent_table": "T22",
+      "rect": {
+        "min_x": 16.805,
+        "max_x": 17.195,
+        "min_y": 14.905001,
+        "max_y": 15.295
+      }
+    },
+    {
+      "name": "T22_E_SEAT",
+      "parent_table": "T22",
+      "rect": {
+        "min_x": 17.645,
+        "max_x": 18.035,
+        "min_y": 15.555,
+        "max_y": 15.945
+      }
+    },
+    {
+      "name": "T22_W_SEAT",
+      "parent_table": "T22",
+      "rect": {
+        "min_x": 15.965,
+        "max_x": 16.355,
+        "min_y": 15.555,
+        "max_y": 15.945
+      }
+    }
+  ],
+  "counters": [
+    {
+      "name": "TEA",
+      "rect": {
+        "min_x": 4.45,
+        "max_x": 6.75,
+        "min_y": 0.225,
+        "max_y": 1.075
+      },
+      "is_food_station": true
+    },
+    {
+      "name": "SANDWICH",
+      "rect": {
+        "min_x": 7.349999,
+        "max_x": 9.95,
+        "min_y": 0.225,
+        "max_y": 1.075
+      },
+      "is_food_station": true
+    },
+    {
+      "name": "JUICE",
+      "rect": {
+        "min_x": 11.0,
+        "max_x": 18.879999,
+        "min_y": 0.225,
+        "max_y": 1.075
+      },
+      "is_food_station": true
+    },
+    {
+      "name": "MAIN_COURSE",
+      "rect": {
+        "min_x": 0.21,
+        "max_x": 1.13,
+        "min_y": 3.6,
+        "max_y": 6.4
+      },
+      "is_food_station": true
+    },
+    {
+      "name": "HAND_WASH",
+      "rect": {
+        "min_x": 0.38,
+        "max_x": 1.26,
+        "min_y": 0.355,
+        "max_y": 1.205
+      },
+      "is_food_station": false
+    },
+    {
+      "name": "CASH",
+      "rect": {
+        "min_x": 2.0,
+        "max_x": 3.65,
+        "min_y": 0.225,
+        "max_y": 1.075
+      },
+      "is_food_station": false
+    }
+  ],
+  "entrances": [],
+  "unknown_objects": [],
+  "skipped_objects": [
+    "tile_band_arm_0",
+    "tile_band_arm_1",
+    "tile_band_wing_0",
+    "tile_band_wing_1",
+    "SLIDING_DOOR_T11_JAMB_low",
+    "SLIDING_DOOR_T11_JAMB_high",
+    "SLIDING_DOOR_T11_TOP_TRACK",
+    "SLIDING_DOOR_T11_THRESHOLD",
+    "SLIDING_DOOR_T11_OPEN_GLASS_PANEL",
+    "SLIDING_DOOR_T11_HANDLE",
+    "DOOR_THRESHOLD_MAIN_ENTRY",
+    "DOOR_THRESHOLD_SIDE_GATE_1",
+    "DOOR_THRESHOLD_SIDE_GATE_2",
+    "MAIN_ENTRY_SLIDING_OVERHEAD_TRACK",
+    "MAIN_ENTRY_SLIDING_JAMB_LEFT",
+    "MAIN_ENTRY_SLIDING_JAMB_RIGHT",
+    "MAIN_ENTRY_SLIDING_LOW_THRESHOLD",
+    "MAIN_ENTRY_SLIDING_OPEN_GLASS",
+    "MAIN_ENTRY_SLIDING_HANDLE",
+    "MAIN_ENTRY_SLIDING_COLOUR_STRIP",
+    "SIDE_GATE_1_SLIDING_OVERHEAD_TRACK",
+    "SIDE_GATE_1_SLIDING_JAMB_LOW",
+    "SIDE_GATE_1_SLIDING_JAMB_HIGH",
+    "SIDE_GATE_1_SLIDING_LOW_THRESHOLD",
+    "SIDE_GATE_1_SLIDING_OPEN_GLASS",
+    "SIDE_GATE_1_SLIDING_HANDLE",
+    "SIDE_GATE_2_SLIDING_OVERHEAD_TRACK",
+    "SIDE_GATE_2_SLIDING_JAMB_LOW",
+    "SIDE_GATE_2_SLIDING_JAMB_HIGH",
+    "SIDE_GATE_2_SLIDING_LOW_THRESHOLD",
+    "SIDE_GATE_2_SLIDING_OPEN_GLASS",
+    "SIDE_GATE_2_SLIDING_HANDLE",
+    "TOP_TEA",
+    "GLASS_TEA",
+    "TOP_SANDWICH",
+    "GLASS_SANDWICH",
+    "TOP_JUICE",
+    "GLASS_JUICE",
+    "JUICE_SERVICE_PANEL_01",
+    "JUICE_PANEL_TRIM_01",
+    "JUICE_SERVICE_PANEL_02",
+    "JUICE_PANEL_TRIM_02",
+    "JUICE_SERVICE_PANEL_03",
+    "JUICE_PANEL_TRIM_03",
+    "JUICE_SERVICE_PANEL_04",
+    "JUICE_PANEL_TRIM_04",
+    "JUICE_SERVICE_PANEL_05",
+    "JUICE_PANEL_TRIM_05",
+    "JUICE_SERVICE_PANEL_06",
+    "JUICE_PANEL_TRIM_06",
+    "JUICE_BACK_FASCIA",
+    "TOP_MAIN_COURSE",
+    "HAND_WASH_CORNER_TOP",
+    "HAND_WASH_BASIN",
+    "HAND_WASH_DRAIN",
+    "HAND_WASH_BACK_SPLASH",
+    "HAND_WASH_LEFT_SPLASH",
+    "CASH_COUNTER_METAL_TOP",
+    "CASH_COUNTER_FRONT_COLOUR",
+    "CASH_COUNTER_RIM",
+    "CASH_REGISTER_BODY",
+    "CASH_REGISTER_SCREEN",
+    "CASH_PAYMENT_TERMINAL",
+    "COLOUR_COUNTER_FRONT_TEA",
+    "COLOUR_COUNTER_HEADER_TEA",
+    "COLOUR_COUNTER_FRONT_SANDWICH",
+    "COLOUR_COUNTER_HEADER_SANDWICH",
+    "COLOUR_COUNTER_FRONT_JUICE",
+    "COLOUR_COUNTER_HEADER_JUICE",
+    "COLOUR_MAIN_COURSE_FACE",
+    "COLOUR_HANDWASH_FACE",
+    "COLOUR_WALL_RIBBON_0",
+    "COLOUR_WALL_RIBBON_1",
+    "COLOUR_WALL_RIBBON_2",
+    "COLOUR_FLOOR_TILE_0",
+    "COLOUR_FLOOR_TILE_1",
+    "COLOUR_FLOOR_TILE_2",
+    "COLOUR_FLOOR_TILE_3",
+    "CEILING_BEAM_0",
+    "CEILING_BEAM_1",
+    "CEILING_BEAM_2",
+    "T03_STEM",
+    "T03_BASE",
+    "T03_N",
+    "T03_N_BACK",
+    "T03_N_LEG-0.145-0.145",
+    "T03_N_LEG-0.1450.145",
+    "T03_N_LEG0.145-0.145",
+    "T03_N_LEG0.1450.145",
+    "T03_S",
+    "T03_S_BACK",
+    "T03_S_LEG-0.145-0.145",
+    "T03_S_LEG-0.1450.145",
+    "T03_S_LEG0.145-0.145",
+    "T03_S_LEG0.1450.145",
+    "T03_E",
+    "T03_E_BACK",
+    "T03_E_LEG-0.145-0.145",
+    "T03_E_LEG-0.1450.145",
+    "T03_E_LEG0.145-0.145",
+    "T03_E_LEG0.1450.145",
+    "T03_W",
+    "T03_W_BACK",
+    "T03_W_LEG-0.145-0.145",
+    "T03_W_LEG-0.1450.145",
+    "T03_W_LEG0.145-0.145",
+    "T03_W_LEG0.1450.145",
+    "T04_STEM",
+    "T04_BASE",
+    "T04_N",
+    "T04_N_BACK",
+    "T04_N_LEG-0.145-0.145",
+    "T04_N_LEG-0.1450.145",
+    "T04_N_LEG0.145-0.145",
+    "T04_N_LEG0.1450.145",
+    "T04_S",
+    "T04_S_BACK",
+    "T04_S_LEG-0.145-0.145",
+    "T04_S_LEG-0.1450.145",
+    "T04_S_LEG0.145-0.145",
+    "T04_S_LEG0.1450.145",
+    "T04_E",
+    "T04_E_BACK",
+    "T04_E_LEG-0.145-0.145",
+    "T04_E_LEG-0.1450.145",
+    "T04_E_LEG0.145-0.145",
+    "T04_E_LEG0.1450.145",
+    "T04_W",
+    "T04_W_BACK",
+    "T04_W_LEG-0.145-0.145",
+    "T04_W_LEG-0.1450.145",
+    "T04_W_LEG0.145-0.145",
+    "T04_W_LEG0.1450.145",
+    "T05_STEM",
+    "T05_BASE",
+    "T05_N",
+    "T05_N_BACK",
+    "T05_N_LEG-0.145-0.145",
+    "T05_N_LEG-0.1450.145",
+    "T05_N_LEG0.145-0.145",
+    "T05_N_LEG0.1450.145",
+    "T05_S",
+    "T05_S_BACK",
+    "T05_S_LEG-0.145-0.145",
+    "T05_S_LEG-0.1450.145",
+    "T05_S_LEG0.145-0.145",
+    "T05_S_LEG0.1450.145",
+    "T05_E",
+    "T05_E_BACK",
+    "T05_E_LEG-0.145-0.145",
+    "T05_E_LEG-0.1450.145",
+    "T05_E_LEG0.145-0.145",
+    "T05_E_LEG0.1450.145",
+    "T05_W",
+    "T05_W_BACK",
+    "T05_W_LEG-0.145-0.145",
+    "T05_W_LEG-0.1450.145",
+    "T05_W_LEG0.145-0.145",
+    "T05_W_LEG0.1450.145",
+    "T08_STEM",
+    "T08_BASE",
+    "T08_N",
+    "T08_N_BACK",
+    "T08_N_LEG-0.145-0.145",
+    "T08_N_LEG-0.1450.145",
+    "T08_N_LEG0.145-0.145",
+    "T08_N_LEG0.1450.145",
+    "T08_S",
+    "T08_S_BACK",
+    "T08_S_LEG-0.145-0.145",
+    "T08_S_LEG-0.1450.145",
+    "T08_S_LEG0.145-0.145",
+    "T08_S_LEG0.1450.145",
+    "T08_E",
+    "T08_E_BACK",
+    "T08_E_LEG-0.145-0.145",
+    "T08_E_LEG-0.1450.145",
+    "T08_E_LEG0.145-0.145",
+    "T08_E_LEG0.1450.145",
+    "T08_W",
+    "T08_W_BACK",
+    "T08_W_LEG-0.145-0.145",
+    "T08_W_LEG-0.1450.145",
+    "T08_W_LEG0.145-0.145",
+    "T08_W_LEG0.1450.145",
+    "T09_STEM",
+    "T09_BASE",
+    "T09_N",
+    "T09_N_BACK",
+    "T09_N_LEG-0.145-0.145",
+    "T09_N_LEG-0.1450.145",
+    "T09_N_LEG0.145-0.145",
+    "T09_N_LEG0.1450.145",
+    "T09_S",
+    "T09_S_BACK",
+    "T09_S_LEG-0.145-0.145",
+    "T09_S_LEG-0.1450.145",
+    "T09_S_LEG0.145-0.145",
+    "T09_S_LEG0.1450.145",
+    "T09_E",
+    "T09_E_BACK",
+    "T09_E_LEG-0.145-0.145",
+    "T09_E_LEG-0.1450.145",
+    "T09_E_LEG0.145-0.145",
+    "T09_E_LEG0.1450.145",
+    "T09_W",
+    "T09_W_BACK",
+    "T09_W_LEG-0.145-0.145",
+    "T09_W_LEG-0.1450.145",
+    "T09_W_LEG0.145-0.145",
+    "T09_W_LEG0.1450.145",
+    "T10_STEM",
+    "T10_BASE",
+    "T10_N",
+    "T10_N_BACK",
+    "T10_N_LEG-0.145-0.145",
+    "T10_N_LEG-0.1450.145",
+    "T10_N_LEG0.145-0.145",
+    "T10_N_LEG0.1450.145",
+    "T10_S",
+    "T10_S_BACK",
+    "T10_S_LEG-0.145-0.145",
+    "T10_S_LEG-0.1450.145",
+    "T10_S_LEG0.145-0.145",
+    "T10_S_LEG0.1450.145",
+    "T10_E",
+    "T10_E_BACK",
+    "T10_E_LEG-0.145-0.145",
+    "T10_E_LEG-0.1450.145",
+    "T10_E_LEG0.145-0.145",
+    "T10_E_LEG0.1450.145",
+    "T10_W",
+    "T10_W_BACK",
+    "T10_W_LEG-0.145-0.145",
+    "T10_W_LEG-0.1450.145",
+    "T10_W_LEG0.145-0.145",
+    "T10_W_LEG0.1450.145",
+    "T11_STEM",
+    "T11_BASE",
+    "T11_N",
+    "T11_N_BACK",
+    "T11_N_LEG-0.145-0.145",
+    "T11_N_LEG-0.1450.145",
+    "T11_N_LEG0.145-0.145",
+    "T11_N_LEG0.1450.145",
+    "T11_S",
+    "T11_S_BACK",
+    "T11_S_LEG-0.145-0.145",
+    "T11_S_LEG-0.1450.145",
+    "T11_S_LEG0.145-0.145",
+    "T11_S_LEG0.1450.145",
+    "T11_E",
+    "T11_E_BACK",
+    "T11_E_LEG-0.145-0.145",
+    "T11_E_LEG-0.1450.145",
+    "T11_E_LEG0.145-0.145",
+    "T11_E_LEG0.1450.145",
+    "T11_W",
+    "T11_W_BACK",
+    "T11_W_LEG-0.145-0.145",
+    "T11_W_LEG-0.1450.145",
+    "T11_W_LEG0.145-0.145",
+    "T11_W_LEG0.1450.145",
+    "T12_STEM",
+    "T12_BASE",
+    "T12_N",
+    "T12_N_BACK",
+    "T12_N_LEG-0.145-0.145",
+    "T12_N_LEG-0.1450.145",
+    "T12_N_LEG0.145-0.145",
+    "T12_N_LEG0.1450.145",
+    "T12_S",
+    "T12_S_BACK",
+    "T12_S_LEG-0.145-0.145",
+    "T12_S_LEG-0.1450.145",
+    "T12_S_LEG0.145-0.145",
+    "T12_S_LEG0.1450.145",
+    "T12_E",
+    "T12_E_BACK",
+    "T12_E_LEG-0.145-0.145",
+    "T12_E_LEG-0.1450.145",
+    "T12_E_LEG0.145-0.145",
+    "T12_E_LEG0.1450.145",
+    "T12_W",
+    "T12_W_BACK",
+    "T12_W_LEG-0.145-0.145",
+    "T12_W_LEG-0.1450.145",
+    "T12_W_LEG0.145-0.145",
+    "T12_W_LEG0.1450.145",
+    "T13_STEM",
+    "T13_BASE",
+    "T13_N",
+    "T13_N_BACK",
+    "T13_N_LEG-0.145-0.145",
+    "T13_N_LEG-0.1450.145",
+    "T13_N_LEG0.145-0.145",
+    "T13_N_LEG0.1450.145",
+    "T13_S",
+    "T13_S_BACK",
+    "T13_S_LEG-0.145-0.145",
+    "T13_S_LEG-0.1450.145",
+    "T13_S_LEG0.145-0.145",
+    "T13_S_LEG0.1450.145",
+    "T13_E",
+    "T13_E_BACK",
+    "T13_E_LEG-0.145-0.145",
+    "T13_E_LEG-0.1450.145",
+    "T13_E_LEG0.145-0.145",
+    "T13_E_LEG0.1450.145",
+    "T13_W",
+    "T13_W_BACK",
+    "T13_W_LEG-0.145-0.145",
+    "T13_W_LEG-0.1450.145",
+    "T13_W_LEG0.145-0.145",
+    "T13_W_LEG0.1450.145",
+    "T14_STEM",
+    "T14_BASE",
+    "T14_N",
+    "T14_N_BACK",
+    "T14_N_LEG-0.145-0.145",
+    "T14_N_LEG-0.1450.145",
+    "T14_N_LEG0.145-0.145",
+    "T14_N_LEG0.1450.145",
+    "T14_S",
+    "T14_S_BACK",
+    "T14_S_LEG-0.145-0.145",
+    "T14_S_LEG-0.1450.145",
+    "T14_S_LEG0.145-0.145",
+    "T14_S_LEG0.1450.145",
+    "T14_E",
+    "T14_E_BACK",
+    "T14_E_LEG-0.145-0.145",
+    "T14_E_LEG-0.1450.145",
+    "T14_E_LEG0.145-0.145",
+    "T14_E_LEG0.1450.145",
+    "T14_W",
+    "T14_W_BACK",
+    "T14_W_LEG-0.145-0.145",
+    "T14_W_LEG-0.1450.145",
+    "T14_W_LEG0.145-0.145",
+    "T14_W_LEG0.1450.145",
+    "T15_STEM",
+    "T15_BASE",
+    "T15_N",
+    "T15_N_BACK",
+    "T15_N_LEG-0.145-0.145",
+    "T15_N_LEG-0.1450.145",
+    "T15_N_LEG0.145-0.145",
+    "T15_N_LEG0.1450.145",
+    "T15_S",
+    "T15_S_BACK",
+    "T15_S_LEG-0.145-0.145",
+    "T15_S_LEG-0.1450.145",
+    "T15_S_LEG0.145-0.145",
+    "T15_S_LEG0.1450.145",
+    "T15_E",
+    "T15_E_BACK",
+    "T15_E_LEG-0.145-0.145",
+    "T15_E_LEG-0.1450.145",
+    "T15_E_LEG0.145-0.145",
+    "T15_E_LEG0.1450.145",
+    "T15_W",
+    "T15_W_BACK",
+    "T15_W_LEG-0.145-0.145",
+    "T15_W_LEG-0.1450.145",
+    "T15_W_LEG0.145-0.145",
+    "T15_W_LEG0.1450.145",
+    "T16_STEM",
+    "T16_BASE",
+    "T16_N",
+    "T16_N_BACK",
+    "T16_N_LEG-0.145-0.145",
+    "T16_N_LEG-0.1450.145",
+    "T16_N_LEG0.145-0.145",
+    "T16_N_LEG0.1450.145",
+    "T16_S",
+    "T16_S_BACK",
+    "T16_S_LEG-0.145-0.145",
+    "T16_S_LEG-0.1450.145",
+    "T16_S_LEG0.145-0.145",
+    "T16_S_LEG0.1450.145",
+    "T16_E",
+    "T16_E_BACK",
+    "T16_E_LEG-0.145-0.145",
+    "T16_E_LEG-0.1450.145",
+    "T16_E_LEG0.145-0.145",
+    "T16_E_LEG0.1450.145",
+    "T16_W",
+    "T16_W_BACK",
+    "T16_W_LEG-0.145-0.145",
+    "T16_W_LEG-0.1450.145",
+    "T16_W_LEG0.145-0.145",
+    "T16_W_LEG0.1450.145",
+    "T17_STEM",
+    "T17_BASE",
+    "T17_N",
+    "T17_N_BACK",
+    "T17_N_LEG-0.145-0.145",
+    "T17_N_LEG-0.1450.145",
+    "T17_N_LEG0.145-0.145",
+    "T17_N_LEG0.1450.145",
+    "T17_S",
+    "T17_S_BACK",
+    "T17_S_LEG-0.145-0.145",
+    "T17_S_LEG-0.1450.145",
+    "T17_S_LEG0.145-0.145",
+    "T17_S_LEG0.1450.145",
+    "T17_E",
+    "T17_E_BACK",
+    "T17_E_LEG-0.145-0.145",
+    "T17_E_LEG-0.1450.145",
+    "T17_E_LEG0.145-0.145",
+    "T17_E_LEG0.1450.145",
+    "T17_W",
+    "T17_W_BACK",
+    "T17_W_LEG-0.145-0.145",
+    "T17_W_LEG-0.1450.145",
+    "T17_W_LEG0.145-0.145",
+    "T17_W_LEG0.1450.145",
+    "T18_STEM",
+    "T18_BASE",
+    "T18_N",
+    "T18_N_BACK",
+    "T18_N_LEG-0.145-0.145",
+    "T18_N_LEG-0.1450.145",
+    "T18_N_LEG0.145-0.145",
+    "T18_N_LEG0.1450.145",
+    "T18_S",
+    "T18_S_BACK",
+    "T18_S_LEG-0.145-0.145",
+    "T18_S_LEG-0.1450.145",
+    "T18_S_LEG0.145-0.145",
+    "T18_S_LEG0.1450.145",
+    "T18_E",
+    "T18_E_BACK",
+    "T18_E_LEG-0.145-0.145",
+    "T18_E_LEG-0.1450.145",
+    "T18_E_LEG0.145-0.145",
+    "T18_E_LEG0.1450.145",
+    "T18_W",
+    "T18_W_BACK",
+    "T18_W_LEG-0.145-0.145",
+    "T18_W_LEG-0.1450.145",
+    "T18_W_LEG0.145-0.145",
+    "T18_W_LEG0.1450.145",
+    "T19_STEM",
+    "T19_BASE",
+    "T19_N",
+    "T19_N_BACK",
+    "T19_N_LEG-0.145-0.145",
+    "T19_N_LEG-0.1450.145",
+    "T19_N_LEG0.145-0.145",
+    "T19_N_LEG0.1450.145",
+    "T19_S",
+    "T19_S_BACK",
+    "T19_S_LEG-0.145-0.145",
+    "T19_S_LEG-0.1450.145",
+    "T19_S_LEG0.145-0.145",
+    "T19_S_LEG0.1450.145",
+    "T19_E",
+    "T19_E_BACK",
+    "T19_E_LEG-0.145-0.145",
+    "T19_E_LEG-0.1450.145",
+    "T19_E_LEG0.145-0.145",
+    "T19_E_LEG0.1450.145",
+    "T19_W",
+    "T19_W_BACK",
+    "T19_W_LEG-0.145-0.145",
+    "T19_W_LEG-0.1450.145",
+    "T19_W_LEG0.145-0.145",
+    "T19_W_LEG0.1450.145",
+    "T20_STEM",
+    "T20_BASE",
+    "T20_N",
+    "T20_N_BACK",
+    "T20_N_LEG-0.145-0.145",
+    "T20_N_LEG-0.1450.145",
+    "T20_N_LEG0.145-0.145",
+    "T20_N_LEG0.1450.145",
+    "T20_S",
+    "T20_S_BACK",
+    "T20_S_LEG-0.145-0.145",
+    "T20_S_LEG-0.1450.145",
+    "T20_S_LEG0.145-0.145",
+    "T20_S_LEG0.1450.145",
+    "T20_E",
+    "T20_E_BACK",
+    "T20_E_LEG-0.145-0.145",
+    "T20_E_LEG-0.1450.145",
+    "T20_E_LEG0.145-0.145",
+    "T20_E_LEG0.1450.145",
+    "T20_W",
+    "T20_W_BACK",
+    "T20_W_LEG-0.145-0.145",
+    "T20_W_LEG-0.1450.145",
+    "T20_W_LEG0.145-0.145",
+    "T20_W_LEG0.1450.145",
+    "T21_STEM",
+    "T21_BASE",
+    "T21_N",
+    "T21_N_BACK",
+    "T21_N_LEG-0.145-0.145",
+    "T21_N_LEG-0.1450.145",
+    "T21_N_LEG0.145-0.145",
+    "T21_N_LEG0.1450.145",
+    "T21_S",
+    "T21_S_BACK",
+    "T21_S_LEG-0.145-0.145",
+    "T21_S_LEG-0.1450.145",
+    "T21_S_LEG0.145-0.145",
+    "T21_S_LEG0.1450.145",
+    "T21_E",
+    "T21_E_BACK",
+    "T21_E_LEG-0.145-0.145",
+    "T21_E_LEG-0.1450.145",
+    "T21_E_LEG0.145-0.145",
+    "T21_E_LEG0.1450.145",
+    "T21_W",
+    "T21_W_BACK",
+    "T21_W_LEG-0.145-0.145",
+    "T21_W_LEG-0.1450.145",
+    "T21_W_LEG0.145-0.145",
+    "T21_W_LEG0.1450.145",
+    "T22_STEM",
+    "T22_BASE",
+    "T22_N",
+    "T22_N_BACK",
+    "T22_N_LEG-0.145-0.145",
+    "T22_N_LEG-0.1450.145",
+    "T22_N_LEG0.145-0.145",
+    "T22_N_LEG0.1450.145",
+    "T22_S",
+    "T22_S_BACK",
+    "T22_S_LEG-0.145-0.145",
+    "T22_S_LEG-0.1450.145",
+    "T22_S_LEG0.145-0.145",
+    "T22_S_LEG0.1450.145",
+    "T22_E",
+    "T22_E_BACK",
+    "T22_E_LEG-0.145-0.145",
+    "T22_E_LEG-0.1450.145",
+    "T22_E_LEG0.145-0.145",
+    "T22_E_LEG0.1450.145",
+    "T22_W",
+    "T22_W_BACK",
+    "T22_W_LEG-0.145-0.145",
+    "T22_W_LEG-0.1450.145",
+    "T22_W_LEG0.145-0.145",
+    "T22_W_LEG0.1450.145",
+    "ROBOT_BODY",
+    "ROBOT_FOOD_TRAY",
+    "WP_spawn_01",
+    "WP_spawn_02",
+    "WP_spawn_03",
+    "WP_spawn_04",
+    "WP_spawn_05",
+    "WP_pickup_TEA",
+    "WP_pickup_SANDWICH",
+    "WP_pickup_JUICE_01",
+    "WP_pickup_JUICE_02",
+    "WP_pickup_JUICE_03",
+    "WP_pickup_JUICE_04",
+    "WP_pickup_MAIN_COURSE",
+    "WP_delivery_T03_N",
+    "WP_delivery_T03_S",
+    "WP_delivery_T03_E",
+    "WP_delivery_T03_W",
+    "WP_delivery_T04_N",
+    "WP_delivery_T04_S",
+    "WP_delivery_T04_E",
+    "WP_delivery_T04_W",
+    "WP_delivery_T05_N",
+    "WP_delivery_T05_S",
+    "WP_delivery_T05_E",
+    "WP_delivery_T05_W",
+    "WP_delivery_T08_N",
+    "WP_delivery_T08_S",
+    "WP_delivery_T08_E",
+    "WP_delivery_T08_W",
+    "WP_delivery_T09_S",
+    "WP_delivery_T09_E",
+    "WP_delivery_T09_W",
+    "WP_delivery_T10_N",
+    "WP_delivery_T10_S",
+    "WP_delivery_T10_E",
+    "WP_delivery_T10_W",
+    "WP_delivery_T11_S",
+    "WP_delivery_T11_E",
+    "WP_delivery_T11_W",
+    "WP_delivery_T12_E",
+    "WP_delivery_T12_W",
+    "WP_delivery_T13_S",
+    "WP_delivery_T13_E",
+    "WP_delivery_T13_W",
+    "WP_delivery_T14_E",
+    "WP_delivery_T14_W",
+    "WP_delivery_T15_E",
+    "WP_delivery_T15_W",
+    "WP_delivery_T16_E",
+    "WP_delivery_T16_W",
+    "WP_delivery_T17_E",
+    "WP_delivery_T18_E",
+    "WP_delivery_T18_W",
+    "WP_delivery_T19_E",
+    "WP_delivery_T19_W",
+    "WP_delivery_T20_N",
+    "WP_delivery_T20_E",
+    "WP_delivery_T20_W",
+    "WP_delivery_T21_N",
+    "WP_delivery_T21_E",
+    "WP_delivery_T21_W",
+    "WP_delivery_T22_N",
+    "WP_delivery_T22_E",
+    "WP_delivery_T22_W",
+    "WP_wait_arm_mid",
+    "WP_wait_arm_low",
+    "WP_wait_wing_entry",
+    "WP_wait_wing_top",
+    "WP_wait_wing_far"
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "scene": "/Users/vedantshah/Downloads/AIFR_Project/AIFR_Simulation_Stage3.blend",
+  "project": "/Users/vedantshah/Downloads/AIFR_Project",
+  "success": true,
+  "warnings": [
+    "Trajectory is offline playback; real-time DWA and multi-robot traffic control are not integrated. Stage 2 scheduler is integrated, but base-return and order UI are not implemented."
+  ],
+  "counts": {
+    "objects": 733,
+    "floors": 2,
+    "walls": 10,
+    "pillars": 6,
+    "tables": 18,
+    "chairs": 72,
+    "counters": 6,
+    "entrances_classified": 0,
+    "unknown": 0
+  },
+  "unknown_objects": [],
+  "v14_door_metadata": {
+    "main_entry": [
+      4.1,
+      7.5
+    ],
+    "side_exit_1": [
+      19,
+      3.8
+    ],
+    "side_exit_2": [
+      19,
+      11.1
+    ],
+    "sliding_entry_t11": [
+      9.0,
+      9.0
+    ]
+  },
+  "grid": {
+    "width": 190,
+    "height": 175,
+    "resolution": 0.1,
+    "free_cells": 11229
+  },
+  "candidate_counts": {
+    "spawn": 5,
+    "sandwich": 1,
+    "T11": 3
+  },
+  "mission": {
+    "spawn": {
+      "x": 5.9,
+      "y": 6.45,
+      "kind": "SPAWN",
+      "label": "spawn_01",
+      "heading": 1.5707963267948966
+    },
+    "pickup": {
+      "x": 8.849999,
+      "y": 1.6749999999999998,
+      "kind": "PICKUP",
+      "label": "pickup_SANDWICH",
+      "heading": -1.5707963267948966
+    },
+    "drop": {
+      "x": 10.8999995,
+      "y": 7.7299999999999995,
+      "kind": "DELIVERY",
+      "label": "delivery_T11_S",
+      "heading": 1.5707963267948966
+    },
+    "planned_path_points": 116,
+    "completed": true,
+    "trace_points": 2913,
+    "trace_footprint_clear": true
+  },
+  "stage2": {
+    "order_id": 1,
+    "assigned_robot": 1,
+    "ready_sequence": 1,
+    "scheduler_policy": "READY-time FCFS, robot ID order",
+    "fleet_size": 3,
+    "final_order_state": "DELIVERED",
+    "robot_available_after_delivery": true,
+    "order_history": [
+      "CREATED",
+      "PREPARING",
+      "READY",
+      "ASSIGNED",
+      "TO_PICKUP",
+      "LOADING",
+      "TO_CUSTOMER",
+      "UNLOADING",
+      "DELIVERED"
+    ]
+  },
+  "stage6": {
+    "ekf_final_pose": {
+      "x": 10.748723185128945,
+      "y": 7.753311794518595,
+      "theta": 0.39425846055505565
+    },
+    "ground_truth_final_pose": {
+      "x": 10.805653039835102,
+      "y": 7.721602051487322,
+      "theta": 0.34776328046545135
+    },
+    "note": "EKF uses simulated noisy odometry and XY observations; LiDAR is not driving control yet."
+  },
+  "stage1": {
+    "approved_scene_preserved": true,
+    "blender_only_for_extraction_and_visualization": true
+  },
+  "integration_level": "one real Stage 2 order, Stage 3 extraction, Stage 4 safety map, Stage 5 trajectory, Stage 6 EKF; offline Blender playback"
+}

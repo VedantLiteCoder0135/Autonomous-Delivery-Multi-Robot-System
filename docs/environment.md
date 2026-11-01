@@ -1,149 +1,213 @@
-# Cafeteria Environment
+# Cafeteria Environment and Mapping
 
-*Autonomous Canteen Delivery Robots · Scene and mapping reference*
+*Autonomous Multi-Robot Food Delivery System · Integrated Stages 1–9*
 
 [← README](../README.md) · [System architecture](architecture.md) · [Development plan](phases.md)
 
-## 1. Environment overview
+## 1. Environment source and scope
 
-The simulation uses a **realistic, L-shaped cafeteria** constructed in **Blender**. Furniture, service counters, entrances and narrow passages create a more meaningful navigation challenge than an empty test room.
-
-The authoritative scene is the team's approved `.blend` file and the associated source script:
+The project uses the team's approved **Cafeteria V14**, an L-shaped indoor environment created in Blender. The included scene file is:
 
 ```text
-AIFR_Cafeteria_Corner_Handwash_Cash_V14.py
+AIFR_Cafeteria_V14_Recovered.blend
 ```
 
-**Preserve the approved V14 geometry.** Scene extraction, mapping and navigation should read the existing objects without silently moving, deleting or resizing them. If a scene change is needed, treat it as a separately reviewed model update.
+For the integrated **Python Stages 7–9 simulation**, the authoritative *runtime inputs* are the exports checked into:
 
-This document describes the **model and validation requirements**; it does not claim that all scene-to-map extraction or waypoint checks are already complete.
+```text
+data/reference_cafeteria/
+├── stage3_environment.json       # Extracted floor and object geometry
+├── stage4_occupancy_grid.json    # Traversability grid
+└── stage36_report.json           # Stage 1–6 validation and door metadata
+```
 
-## 2. Layout and scale
+The runtime loads these existing exports; it **does not re-extract the `.blend` scene** on every run. If the Blender model changes, the reference exports must be regenerated and revalidated together. Never silently edit approved cafeteria geometry to make navigation tests pass.
 
-The floor is approximately an **L-shaped union** of two rectangular regions:
+The Stage 1–6 Blender bridge remains available at `tools/blender_stage16_bridge.py`. The integrated Stages 7–9 simulation runs independently in Python; full multi-robot Blender playback is **not yet connected**.
 
-| Region | X range | Y range |
-|---|---|---|
-| Lower arm | 0–19 m | 0–7.5 m |
-| Upper wing | 9–19 m | 7.5–17.5 m |
+## 2. Layout and coordinate system
 
-These ranges are **provisional modelling assumptions**, not survey measurements. Actual Blender object transforms and the approved scene take precedence over manually typed values.
+Navigation uses the horizontal **XY plane**, with distances in metres. The exported floor consists of two connected rectangles:
 
-The floor must be interpreted as **connected walkable regions**, not a single 19 × 17.5 m rectangle: cells outside the L are not valid traversal space. The shared boundary between arms must not be accidentally treated as a blocking wall if the scene connects them.
+| Floor region | X range (m) | Y range (m) |
+|---|---:|---:|
+| Lower arm (`FLOOR_arm`) | 0–19 | 0–7.5 |
+| Upper wing (`FLOOR_wing`) | 9–19 | 7.5–17.5 |
 
-## 3. Scene inventory
+Together these form an **L**, not a fully walkable 19 × 17.5 m rectangle. Space outside those floor regions is invalid for robot motion, even when it lies inside the occupancy grid's outer bounding box.
 
-| Object group | Documented count / details |
-|---|---|
-| Customer tables | 18 |
-| Chairs | 72, approximately 4 per table |
+The physical objects and waypoints use the exported scene's world coordinates. When changing the scene, keep extraction, obstacle geometry and waypoint coordinates consistent.
+
+## 3. Verified scene inventory
+
+The included Stage 1–6 reference report records:
+
+| Object type | Count |
+|---|---:|
+| Scene objects | 733 |
+| Floor regions | 2 |
+| Wall segments | 10 |
 | Pillars | 6 |
-| Food service counters | 4: Main Course, Tea, Sandwich, Juice |
-| Other counters | Hand Wash, Cash/Billing |
-| Entrances/exits | 4: main entrance, two side exits, sliding entrance near T11 |
-| Robot | Existing placeholder; nominal footprint approximately **0.40 × 0.36 m** |
+| Tables | 18 |
+| Chairs | 72 |
+| Counters | 6 |
+| Unknown classified objects | 0 |
 
-These are the counts recorded in the supplied project documentation. Any discrepancy during extraction must be **reported**, rather than papered over by inventing missing geometry.
+The counters include the food pickup stations **Main Course, Tea, Sandwich and Juice**, plus the **Hand Wash** and **Cash/Billing** service areas. Counters, walls, pillars, tables and chairs are treated as physical obstacles, with separate approach waypoints for service and delivery.
 
-### Service and delivery destinations
+The extraction also records decorative and other intentionally skipped objects. The zero *unknown* count does not mean that every scene object is a navigation obstacle.
 
-- **Pickup:** a validated approach pose at the appropriate food counter, with space for simulated loading.
-- **Delivery:** a reachable approach pose beside the requested table, **never at the centre of its furniture**.
-- **Spawn / base camp:** an explicitly validated safe pose or area, not an arbitrary empty-looking spot.
-- **Waiting / yielding:** optional poses that leave room for other robots to move through shared aisles.
+## 4. Entrances: Stage 7 correction
 
-Pickup and drop-off poses must include position and, where relevant, orientation. Names such as `T11` or `Juice` identify targets but do **not** establish safe coordinates on their own.
+**The four entrances are now classified and checked against the exported wall geometry by the integrated loader.** The original Stage 1–6 JSON still contains `entrances: []` and reports `entrances_classified: 0`, because that export was produced *before* the correction. This is expected: the current Python loader applies the correction at runtime, rather than rewriting the historical report.
 
-## 4. Geometry extraction
+The four opening locations come from `stage36_report.json` → `v14_door_metadata`:
 
-The `environment/` modules described in the development plan are intended to extract the approved scene into data usable without Blender.
-
-For relevant objects, extract or derive:
-
-1. Stable identity/name and object type.
-2. World-space location and orientation.
-3. Dimensions and transformed bounding geometry.
-4. Parent-child relationships where they affect world transforms.
-5. Environment classification and whether an object blocks robot motion.
-6. Any unresolved classification or geometry issues.
-
-**Important:** Blender local transforms may be misleading when objects are parented, scaled or rotated. Mapping should use the effective **world-space geometry**. Axis-aligned bounds are not a substitute for an oriented footprint collision test when a rotation matters.
-
-### Classification
-
-| Class | Treatment in navigation data |
+| Entrance metadata key | Approximate XY centre (m) |
 |---|---|
-| Walkable floor | Candidate traversable regions, after containment checks |
-| Walls / pillars | Static obstacles |
-| Tables / chairs | Static obstacles, unless explicitly modeled otherwise |
-| Food / hand-wash / cash counters | Physical obstacles with separate approach waypoints |
-| Entrances / openings | Preserve actual gaps and access constraints |
-| Decorative objects | Inspect and classify; some may still block motion |
-| Unknown objects | Flag for review; do not silently classify as free space |
+| `main_entry` | (4.1, 7.5) |
+| `side_exit_1` | (19.0, 3.8) |
+| `side_exit_2` | (19.0, 11.1) |
+| `sliding_entry_t11` | (9.0, 9.0) |
 
-The **four actual entrances** must remain represented correctly. No door or passage should be inferred as traversable merely from its name.
+`tools/stage79_engine.py` → `load_reference()` reconstructs the entrance objects through `EnvironmentMapper`, checks each opening against the **actual exported wall rectangles**, and requires **exactly four** verified entrances before the scenario starts.
 
-## 5. Navigation map and robot footprint
+**What this validation does not establish:** It does not prove that the inflated robot footprint can traverse every entrance from either direction. Opening classification, geometric clearance and route accessibility are distinct tests. The integrated simulation's successful runs also do not independently revalidate a changed `.blend` scene.
 
-The extracted scene feeds an **occupancy or equivalent navigation representation**. A starting grid resolution of **0.10 m** was proposed in the technical plan; it is configurable and must be checked against narrow-passages and obstacle dimensions.
+## 5. Occupancy grid and collision model
 
-Expected distinctions include:
+The included Stage 4 navigation grid is:
 
-- **Free:** verified, walkable space with adequate clearance.
-- **Blocked:** furniture, walls, pillars, counter bodies or non-walkable outside regions.
-- **Unknown:** insufficient or unclassified geometry that requires inspection.
-
-Robot safety checks must use the **full oriented 0.40 × 0.36 m rectangular footprint**, plus a configurable clearance margin. Merely verifying that the robot centre lies on a free grid cell is inadequate.
-
-A candidate route or waypoint should be rejected if the footprint:
-
-- Crosses an outside edge of the L-shaped walkable floor.
-- Overlaps furniture, pillars, counters or walls.
-- Cannot pass through a narrow aisle at the required orientation.
-- Clips a corner during a turn, even if the route endpoints are free.
-- Reaches a doorway or destination that is not actually accessible.
-
-## 6. Waypoint generation and validation
-
-The planned waypoint layer (`waypoint_manager.py`) should find and check:
-
-| Type | Validation requirement |
+| Property | Value |
 |---|---|
-| Robot spawn | Inside a walkable region, collision-free |
-| Base camp | Safe parking / dispatch location with adequate maneuvering space |
-| Food pickup | Beside the correct counter, physically reachable |
-| Table delivery | Reachable approach candidate for each of the 18 tables |
-| Waiting / yielding | Clear of obstacles and not blocking critical passages |
+| Grid dimensions | 190 × 175 cells |
+| Cell resolution | 0.10 m |
+| Origin | (0.0, 0.0) m |
+| Free cells in the reference report | 11,229 |
+| Cell encoding | `0` = free, `1` = blocked |
 
-For every candidate, report either **valid** or **rejected with a reason**. Validating a point in isolation is insufficient; connectivity and approach feasibility matter. Unreachable tables or counters must be reported explicitly.
+`src/aifr/navigation/occupancy_grid.py` supplies coordinate conversion and grid checks. The grid is a conservative discretized navigation representation of the V14 floor and obstacles.
 
-The base-camp **location** is an environment-design concern. Whether robots must return there **before becoming available** is a separate scheduler/integration decision described in [architecture.md](architecture.md#robot-lifecycle-and-availability).
+`src/aifr/navigation/collision_checker.py` performs geometry-level robot-footprint checks. The reference robot is approximately **0.40 × 0.36 m**, with a separate clearance margin (the `CollisionChecker` default is **0.05 m**). Grid-centre tests alone are not sufficient for physical safety; the integrated engine also checks motion and proximity to other agents.
 
-## 7. Output to the Python simulation
+Navigation must keep robots clear of walls, tables, chairs, pillars, counters, outside-floor regions and other robots. The current implementation uses 2D kinematics and a discrete simulation, not Blender rigid-body physics.
 
-The scene extraction/mapping layer is intended to produce a **versioned JSON representation** (exact schema to be finalized). At minimum, downstream modules need:
+## 6. Pickup, delivery and base waypoints
 
-- Coordinate system, units and source-scene identification.
-- Walkable floor shapes or a derived navigation grid.
-- Obstacle identities, geometry and relevant clearances.
-- Entrances and traversability information.
-- Validated pickup, delivery, spawn and waiting waypoints.
-- Diagnostics for unknown objects, rejected waypoints and unreachable destinations.
+`src/aifr/environment/waypoint_manager.py` generates candidate positions near relevant scene features; the Stage 7–9 engine keeps only waypoints whose grid cells are free. It uses **counter approach points**, not the centres of physical counters, and **table approach points**, not table centres.
 
-Do not hard-code an environment snapshot as a second authority if the underlying approved `.blend` scene changes. Re-extract and validate the scene instead.
+The original Stage 1–6 report's example mission uses:
 
-## 8. Validation checklist
+| Purpose | Reference position (m) |
+|---|---|
+| Spawn | (5.90, 6.45) |
+| Sandwich pickup | (8.85, 1.675) |
+| T11 delivery | (10.90, 7.73) |
 
-Before relying on the exported map for autonomous delivery, verify:
+These coordinates describe one historical demonstration, **not a guarantee that every later order uses the same point**. The integrated engine selects reachable pickup and delivery waypoints for each order.
 
-- [ ] The approved scene remains unchanged by extraction.
-- [ ] All **18 tables**, **72 chairs**, **6 pillars** and service points are accounted for, or discrepancies are explained.
-- [ ] All **four entrances** and their actual openings are represented.
-- [ ] Both connected floor arms and their shared boundary are handled correctly.
-- [ ] Rotated and parented object transforms are exported in world coordinates.
-- [ ] Unknown objects and invalid geometry produce explicit diagnostics.
-- [ ] Pickup / delivery candidates have safe clearance and are reachable.
-- [ ] Full-footprint collisions are rejected at different robot orientations.
-- [ ] A Blender integration check confirms the Python map matches the scene.
+### Multiple robot base camps
 
-The project plan tracks implementation of these checks in [phases.md](phases.md). Passing an isolated Python unit test is not the same as validating the **actual Blender scene**.
+`Stage79Engine` supports **1–4 robots** in its current CLI. It starts from validated spawn candidates and constructs distinct, collision-checked base slots around the primary base area. It requires separation between base slots and checks route connectivity.
+
+The robot lifecycle is:
+
+```text
+IDLE at base
+    ↓ assigned an order
+Travel to pickup → Load → Travel to table → Deliver
+    ↓
+RETURNING to assigned base
+    ↓ base arrival confirmed
+IDLE / available for reassignment
+```
+
+The integrated scheduler uses **READY-time FCFS** for assignment and defers releasing a robot until it returns. The original Stage 2 behavior is retained for its own legacy tests; the integrated engine explicitly opts into return-before-reassignment.
+
+## 7. How the environment enters navigation
+
+```mermaid
+flowchart TD
+    B[Approved V14 Blender scene] --> X[Stage 1–6 extraction and reports]
+    X --> J[Reference JSON files]
+    J --> L[load_reference]
+    L --> E[Environment + four verified entrances]
+    L --> G[Occupancy grid]
+    E --> W[Waypoint generation and footprint checks]
+    G --> W
+    W --> A[A* global routes]
+    A --> O[ALNS route optimization]
+    O --> D[DWA local motion]
+    G --> D
+    D --> S[Integrated fleet simulation]
+    S --> R[JSON report and robot traces]
+```
+
+Module locations:
+
+| Concern | Implementation |
+|---|---|
+| Scene extraction and classification | `src/aifr/environment/` |
+| Grid and static collision tests | `src/aifr/navigation/occupancy_grid.py`, `collision_checker.py` |
+| A* and ALNS | `src/aifr/navigation/astar.py`, `alns.py` |
+| Local path tracking and DWA | `src/aifr/navigation/dwa_route.py`, `dwa.py` |
+| LiDAR observations and pose estimation | `src/aifr/perception/` |
+| Scenarios, validated reference loading and robot simulation | `tools/stage79_engine.py`, `stage79_scenarios.py` |
+
+The environment provides *geometry*. Order scheduling, motion control, inter-robot yielding and return-to-base states are implemented in the higher-level simulation engine.
+
+## 8. Running and validating the integrated environment
+
+From the repository root, using the project's Python 3.12 environment:
+
+```bash
+python -m pytest -q
+python tools/run_stage79.py
+```
+
+This reads the three bundled reference files and writes:
+
+```text
+outputs/stage79_report.json
+outputs/stage79_trace.json
+```
+
+For an independent scenario with one simulated pedestrian:
+
+```bash
+python tools/run_stage79.py --robots 1 --orders T11:SANDWICH --pedestrian
+```
+
+The pedestrian mode is currently a **single, controlled test scenario**, not general crowd generation. Run it separately and inspect the output; the normal default scenario does not include a pedestrian.
+
+### Reported verification on macOS / VS Code
+
+The user successfully ran **674 Python tests** and the default integrated scenario. Its report showed:
+
+| Metric | Result |
+|---|---:|
+| Overall simulation | Success |
+| Robots | 2 |
+| Delivered orders | 3 |
+| Wall-verified entrance classifications | 4 |
+| Robots returned to base and available | 2 |
+| Return-before-reassignment | `true` |
+| Simulation duration | 4,550 ticks (227.5 simulated seconds) |
+| Minimum inter-robot clearance | ~0.157 m |
+| Pedestrian clearance | Not measured in the default run (`null`) |
+
+These are **results from the tested Python simulation**. They do not establish Blender playback success, full scene-to-export parity after future edits, robustness to noisy sensing, or safety under arbitrary crowded conditions.
+
+## 9. Change control and remaining checks
+
+When updating the cafeteria or adding simulation complexity:
+
+- Keep the approved `.blend` source unchanged unless a new scene version is explicitly reviewed.
+- Regenerate and inspect the scene export, occupancy grid and reference report **together** after any accepted geometry change.
+- Require all four entrances to be classified, then separately test whether routes can actually traverse their openings with the robot footprint.
+- Validate counter/table approaches and distinct robot base slots for the selected scenario.
+- Rerun the full test suite and static multi-robot run; separately run the pedestrian scenario if obstacle response has changed.
+- Check that all robots return to base before being reassigned, and review minimum clearances rather than relying on `success: true` alone.
+- Treat integration of Stages 7–9 trajectory playback, multiple pedestrians and larger robot fleets into Blender as **future work**, not already delivered capabilities.
+
+For simulation architecture and current limitations, see [architecture.md](architecture.md).

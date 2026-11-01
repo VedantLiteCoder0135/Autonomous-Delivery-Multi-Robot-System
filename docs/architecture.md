@@ -1,181 +1,183 @@
 # System Architecture
 
-*Autonomous Canteen Delivery Robots · Technical design reference*
+**Autonomous Multi-Robot Food Delivery System · Implemented Stages 1–9**
 
-[← README](../README.md) · [Environment](environment.md) · [Development plan](phases.md)
+[← Project README](../README.md) · [Verification guide](../STAGES_7_TO_9_VERIFICATION.md)
 
-## 1. Design overview
+## 1. Overview
 
-The system is a **Blender-based, multi-robot food delivery simulation** with a **Python robotics core**. Its key architectural choice is to keep order management, navigation, localization, perception, robot coordination and visualization separate.
+The system is a **fixed-step, 2D kinematic robotics simulation** whose reference environment comes from the recovered Blender **Cafeteria V14** scene. Python owns order management, path planning, robot motion, sensor simulation, collision validation and reporting. The local browser dashboard is a client of the Python engine.
 
-This document defines **responsibilities and interfaces**. It does not replace the task-by-task implementation plan in [phases.md](phases.md), and descriptions of planned behavior are not claims of completed functionality.
+**Current integration boundary:** Scene data was exported from Blender in Stages 1–6 and is loaded by the Stages 7–9 Python runner from `data/reference_cafeteria/`. The engine does **not** currently control robot objects live in Blender. Earlier Blender bridges provide offline demonstrations; integrated multi-robot Blender animation is the next integration step.
 
-### System-level data flow (target)
+## 2. Implemented data flow
 
-```text
-Customer / staff actions
-         |
-         v
-Order manager ---> READY order queue
-                        |
-                        v
-                 FCFS fleet scheduler <---- Robot registry / availability
-                        |
-                        v
-                  Assigned mission
-                        |
-         +--------------+--------------+
-         |                             |
-         v                             v
- Cafeteria map + waypoints       Robot pose estimate
-         |                             ^
-         v                             |
-  Global route / task plan          Odometry + sensors
-         |                             |
-         +--------------+--------------+
-                        |
-                        v
-             Local motion controller
-                        |
-                        v
-             Differential-drive model
-                        |
-                        v
-             Simulated robot / Blender
-                        |
-                        v
-          State updates, events, metrics
+```mermaid
+flowchart TB
+    subgraph Input[Scenario inputs]
+      CLI[CLI runner / browser dashboard]
+      SCENE[Reference cafeteria exports]
+      PED[Optional pedestrian provider]
+    end
+    subgraph Core[Python simulation]
+      OM[OrderManager / Order lifecycle]
+      SCH[READY queue + FCFS GlobalScheduler]
+      REG[RobotRegistry + assignment ledger]
+      ENV[EnvironmentMapper + WaypointManager]
+      GRID[OccupancyGrid + CollisionChecker]
+      ALNS[A* + ALNS route optimizer]
+      PER[SensorSuite + LiDAR tracker + EKF]
+      DWA[RouteDWA / motion prediction]
+      TRAFFIC[Traffic admission + swept collision checks]
+      ENG[Stage79Engine]
+    end
+    subgraph Output[Observability]
+      STATE[Robot / order states + events]
+      TRACE[Trajectories + JSON report]
+      DASH[Local browser dashboard]
+    end
+    CLI --> OM
+    SCENE --> ENV --> GRID --> ALNS
+    OM --> SCH <--> REG
+    SCH --> ENG
+    ALNS --> ENG
+    GRID --> ENG
+    PED --> PER
+    ENG --> PER --> DWA --> TRAFFIC --> ENG
+    ENG --> STATE
+    ENG --> TRACE
+    STATE --> DASH
+    DASH --> CLI
 ```
 
-The scheduler operates at **fleet level**. Navigation and state estimation operate **per robot**, with the fleet coordination layer resolving shared-space conflicts.
+Conceptually, each simulation tick advances the clock, assigns eligible READY orders, updates per-robot perception and motion, validates safety, progresses mission states, and records events/trace samples. The diagram shows logical dependencies rather than a literal call graph.
 
-## 2. Module boundaries
+## 3. Source layout and ownership
 
-The reference package layout from the development plan is `src/aifr/`. Directories may be introduced incrementally.
-
-| Package | Responsibility | Typical inputs / outputs |
+| Source | Responsibility | Important implementation |
 |---|---|---|
-| `common/` | Shared models, events, errors and clock | Types and events used across modules |
-| `config/` | Central simulation parameters | Robot dimensions, timing, limits |
-| `orders/` | Order states, preparation, completion, cancellation | Order events and state changes |
-| `fleet/` | Robot identity, state and availability | Registry entries and robot events |
-| `scheduling/` | Global READY queue and deterministic assignment | READY orders + eligible robots → assignments |
-| `environment/` | Blender scene extraction, classification and waypoints | Scene metadata → geometry / candidate points |
-| `navigation/` | Occupancy representation, collision checks, planning and control | Map + pose + goal → route / motion commands |
-| `perception/` | Simulated sensors and localization | Sensor/odometry data → observations and pose estimate |
-| `coordination/` | Shared-corridor, reservation, yielding and deadlock logic | Robot intentions → conflict-resolution actions |
-| `simulation/` | Time stepping and orchestration | Events + robot updates → simulation state |
-| `interface/` | Blender/UI adapters, controls and display | Simulation state ↔ visualization/user commands |
+| `src/aifr/common/` | Simulation time, shared types, events | `SimClock`, `EventBus` |
+| `src/aifr/orders/` | Order creation and transitions | `OrderManager`, `OrderStatus` |
+| `src/aifr/fleet/` | Robot inventory and status | `RobotRegistry` |
+| `src/aifr/scheduling/` | READY-order queuing and dispatch | `GlobalScheduler`, assignment ledger |
+| `src/aifr/environment/` | Cafeteria classification and waypoints | `EnvironmentMapper`, `WaypointManager` |
+| `src/aifr/navigation/occupancy_grid.py` | Traversability representation | `OccupancyGrid` |
+| `src/aifr/navigation/astar.py` | Global path construction | `find_path` |
+| `src/aifr/navigation/alns.py` | Geometric path improvement | `ALNSRouteOptimizer` |
+| `src/aifr/navigation/dwa.py`, `dwa_route.py` | Local velocity selection and route following | `DWAPlanner`, `RouteDWA` |
+| `src/aifr/navigation/collision_checker.py` | Geometric safety checks | `CollisionChecker` |
+| `src/aifr/perception/` | Noisy readings, obstacle observations, pose estimation | `SensorSuite`, `lidar_scan`, `LiDARObstacleTracker`, `PoseEKF` |
+| `tools/stage79_engine.py` | Integrated tick loop and robot mission orchestration | `Stage79Engine`, `RobotRuntime` |
+| `tools/run_stage79.py` | Reproducible CLI scenarios and JSON exports | `main` |
+| `tools/stage79_dashboard.py` | Local HTTP dashboard / user controls | `Stage79App` |
+| `tools/stage79_scenarios.py` | Reproducible optional pedestrian scenario | `v14_pedestrian` |
+| `tools/blender_stage16_bridge.py` | Existing Blender-to-Python demonstration adapter | Stage 1–6 bridge |
 
-**Boundary rule:** `bpy`-dependent extraction and rendering stay in Blender-facing adapters. The order, scheduling, geometry and planning logic should remain testable with ordinary Python wherever possible.
+The integrated entry points live in `tools/`; the reusable foundational logic lives under `src/aifr/`. There is no ROS dependency and no separate FastAPI/React backend in this version.
 
-## 3. Orders and dispatch
+## 4. Environment and entrance mapping
 
-### Order lifecycle
-
-```text
-CREATED -> PREPARING -> READY -> ASSIGNED -> TO_PICKUP
-        -> LOADING -> TO_CUSTOMER -> UNLOADING -> DELIVERED
-
-Exceptional terminal states: FAILED, CANCELLED
-```
-
-An order specifies a **food counter** and a **destination table**. A table should resolve to a safe approach waypoint, not the table centre. Staff mark food **READY** before it becomes dispatchable; robot loading and delivery confirmations are simulated events.
-
-### Currently documented scheduler policy
-
-The completed scheduling module described in `phases.md` follows these rules:
-
-- **One global FCFS queue** across the fleet, populated when orders become **READY**, not at initial creation.
-- Earlier **READY timestamps** have higher priority; a sequence number resolves ties.
-- Available robots are chosen deterministically by **ascending robot ID** unless explicit robot priorities are configured. Robot priority does not reorder waiting orders.
-- **One active order per robot**. Busy or faulted robots cannot accept another order.
-- No distance-based assignment or route-cost-based scheduling is part of the current FCFS policy.
-- A faulty robot becomes `FAULTED`; its active order becomes `FAILED` and is **not requeued automatically**. Manual retry creates another order.
-- Cancellation is rejected once the order reaches `LOADING`.
-
-This policy must remain the baseline when later optimization work is introduced. Any change to fairness, eligibility, batching or tie-breaking needs an explicit design decision and corresponding tests.
-
-### Robot lifecycle and availability
-
-The **intended end-to-end physical workflow** is:
+The runner loads three reference files:
 
 ```text
-IDLE at base -> travel to counter -> load -> travel to table
-             -> unload -> return to base -> IDLE
+data/reference_cafeteria/
+├── stage3_environment.json
+├── stage4_occupancy_grid.json
+└── stage36_report.json
 ```
 
-The **scheduler currently documented in the development plan** makes a robot available immediately after delivery, without performing the return-to-base trip. The return-to-base requirement is not yet integrated with the fleet state machine. Until then, do **not** claim that only base-camp robots are eligible or that return motion is implemented.
+`load_reference()` in `tools/stage79_engine.py` checks that the Stage 1–6 reference mission succeeded. It reads `v14_door_metadata` from the report and compares four specified door openings against the exported wall rectangles through `EnvironmentMapper`. The integrated scenario requires **exactly four wall-verified entrance classifications**.
 
-The eventual implementation needs a decision about when the robot becomes `IDLE`, how the base camp is represented, and how interrupted/blocked returns affect scheduling.
+**What this means:** There are four physically validated wall openings in the scene representation. This does **not** imply every doorway centre is passable by the robot's conservatively inflated occupancy grid; clearance through individual entrances must be separately tested.
 
-## 4. Navigation, perception and optimization
+Route planning uses validated pickup, delivery and base waypoints on the occupancy grid. Full footprint and inter-agent safety checks are applied during motion.
 
-| Layer | Intended method | Owns | Does not own |
-|---|---|---|---|
-| Map and traversability | Geometry + occupancy grid / collision checking | Free/blocked space and robot clearances | Order priority |
-| Global route / task optimization | **ALNS** (planned) | Solve an explicitly defined routing problem using valid map constraints | Wheel commands or local avoidance |
-| Optional pathfinding baseline | **A\*** (earlier prototype) | Reference point-to-point path, if retained | Fleet assignment |
-| Local motion | **DWA** (planned) | Feasible linear/angular velocity commands | Global queue policy |
-| Localization | **EKF** (planned integration) | Estimated pose and uncertainty | Collision-free path guarantees |
-| Perception | **Simulated 2D LiDAR** / observations | Nearby environment measurements | Task dispatch |
-| Fleet traffic | Reservations, yielding, conflict/deadlock handling (planned) | Safe interaction of multiple robots | Individual sensor fusion |
+## 5. Order scheduling and return-to-base lifecycle
 
-**Do not treat A\* and ALNS as interchangeable.** The team intends to explore ALNS for global optimization, while A\* belongs to an earlier point-to-point prototype and is **optional**, not a committed part of the final architecture. ALNS needs a defined optimization problem, route representation and path-feasibility checks. The currently documented **one-order-per-robot FCFS** policy does not by itself define a multi-stop ALNS problem. A working route-generation strategy is also needed for single-robot delivery before any fleet optimization is integrated.
+The scheduler preserves **READY-time FCFS** ordering and robot availability rules. The integrated engine constructs it with `release_on_delivery=False`.
 
-### Intended per-robot navigation cycle
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> TO_PICKUP: READY order assigned
+    TO_PICKUP --> LOADING: counter reached
+    LOADING --> TO_CUSTOMER: loading completed
+    TO_CUSTOMER --> UNLOADING: table reached
+    UNLOADING --> RETURNING: order marked DELIVERED
+    RETURNING --> IDLE: base reached; assignment released
+    IDLE --> TO_PICKUP: next eligible assignment
+```
 
-1. Read odometry and simulated obstacle/landmark observations.
-2. Estimate pose with EKF, keeping ground truth separate for evaluation.
-3. Use the approved map and a validated pickup/delivery waypoint.
-4. Obtain or update global path guidance when required.
-5. Choose safe local motion using DWA and collision constraints.
-6. Apply differential-drive commands; advance the simulation and record state.
+Order completion and robot availability are **different events**:
 
-The nominal design uses a **0.05 s (20 Hz) simulation step**, configurable. It is a target setting, not verified real-time performance. A successful planner must also validate the whole oriented robot footprint, not just the robot centre.
+- When the robot finishes unloading, the **order** becomes `DELIVERED`.
+- The **robot** remains unavailable while `RETURNING` to its own base.
+- On confirmed base arrival, the engine invokes the scheduler's return-completion behavior; only then can the robot accept a new order.
+- The older scheduler can still be constructed in its original release-on-delivery mode for backward compatibility with Stage 2 tests. The **integrated Stage 8 engine disables early release**.
+
+Robot faults and navigation failure are recorded rather than silently bypassed. The engine uses distinct robot runtime phases and order statuses; not all runtime phases are order-status enum values.
+
+## 6. Navigation and perception
+
+### Global route planning
+
+A* finds an initial traversable route on the occupancy grid. `ALNSRouteOptimizer` then attempts to reduce the route objective using path-segment destruction/repair, collision-free shortcuts and turn penalties.
+
+**Current ALNS scope:** It optimizes **individual route geometry** for fixed endpoints. It does not reorder the READY queue, solve a multi-vehicle routing problem, or optimize fleet-wide pickup assignment. In the user's default run the combined ALNS route objective changed from **86.296 to 77.679** (~10% reduction). This is not a delivery-time improvement claim.
+
+### Local navigation
+
+The route-following DWA component selects linear/angular velocity commands constrained by configured speed/acceleration limits. It predicts short local trajectories and checks static map clearance and nearby obstacle trajectories. The global route is retained as guidance while the local planner reacts to obstacles.
+
+### Sensor and pose estimation
+
+The Python simulation models LiDAR ranges and odometry; a LiDAR adapter converts detections to tracked obstacle representations, while an EKF estimates robot pose. The integrated default `RobotRuntime` currently uses **zero sensor-noise standard deviations**. Thus default-run success is **not** evidence of robustness to realistic sensor noise, occlusion or uncertain pedestrian motion.
 
 ### Multi-robot coordination
 
-Robot-to-robot collisions cannot be prevented by independent route planning alone, especially in narrow aisles. The fleet design therefore anticipates conflict detection, passage reservations or equivalent coordination, yielding, waiting and deadlock handling. These are **planned** capabilities until demonstrated in the integrated simulation.
+The engine admits robots conservatively into contested narrow areas, checks relative robot clearance along each step and delays movement when necessary. This supports the verified two-robot scenario but is not a formal deadlock-free multi-agent planner. Traffic can become slow or stalled as density increases.
 
-## 5. Environment and data exchange
+## 7. Engine, dashboard and output contracts
 
-The approved Blender cafeteria scene is the geometry source. The `environment/` layer extracts and classifies it, then provides **Blender-independent data** for mapping and navigation.
+### CLI
 
-Data-exchange requirements:
+```bash
+python tools/run_stage79.py
+python tools/run_stage79.py --robots 3 --orders T11:SANDWICH T12:JUICE T13:TEA
+python tools/run_stage79.py --robots 1 --orders T11:SANDWICH --pedestrian
+```
 
-- Record world-space transforms and dimensions, including relevant parent/scale effects.
-- State **coordinate conventions, units (metres)**, data/schema version and object identity.
-- Preserve **unknown or unsupported objects** as explicit diagnostics, not silent free space.
-- Expose walkable floor regions, obstacles, entrances and waypoint candidates.
-- Validate rotated robot footprint clearances and waypoint accessibility.
-- Use **JSON** as the intended interchange format between scene extraction and pure-Python components.
+Supported robot count is **1–4**; `--pedestrian` is restricted to the **one-robot** comparison scenario. The default is two robots and three orders, with no pedestrian. The runner uses `dt = 0.05 s` in its exported trace and stops on completion or the tick limit.
 
-Specific scene dimensions, counts, constraints and validation rules belong in [environment.md](environment.md).
+### Dashboard
 
-## 6. Testing and correctness
+```bash
+python tools/stage79_dashboard.py
+```
 
-| Area | What should be verified |
+The dashboard runs on **127.0.0.1:8765** by default. Its HTTP interface exposes state, map, report, order creation and simulation controls. It supports start/resume, pause, step, speed, emergency stop, reset and saving the current report. It is a local development interface, **not** an authenticated remotely hosted product.
+
+### Outputs
+
+| Path | Content |
 |---|---|
-| Order management | Valid state transitions, READY queue order, cancellation and fault rules |
-| Fleet scheduling | FCFS fairness, tie-breaks, busy/faulted robot exclusion, repeatable results |
-| Geometry | Transform extraction, L-shaped floor union, obstacle classification |
-| Traversability | Oriented footprint checks, narrow passages, door gaps, corner cutting |
-| Navigation | Valid endpoints, obstacle-free paths, route following, safe stopping |
-| Localization | Estimation error against ground truth, behavior with noisy data |
-| Coordination | No robot collisions or deadlocks in defined stress scenarios |
-| Integration | Order → pickup → delivery behavior, state consistency and useful metrics |
+| `outputs/stage79_report.json` | Overall success, orders, fleet state, entrances, ALNS costs, clearances, errors |
+| `outputs/stage79_trace.json` | Per-robot trajectory samples, route records, event history, time step |
+| `outputs/stage79_dashboard_report.json` | Dashboard-saved state report when explicitly requested |
 
-The development plan reports **511 passing scheduling-related tests and high coverage** at handoff. Those are **reported historical results**, not proof that Blender navigation or the full multi-robot workflow is currently integrated. Any displayed test count should be tied to a verified run and revision.
+These outputs are generated by the Python simulation, not by Blender. The cafeteria source `.blend` is not rewritten by these commands.
 
-## 7. Open integration choices
+## 8. Verified scenario and limitations
 
-These questions must be resolved in the implementation process rather than silently answered by documentation:
+**User-reported macOS/VS Code verification:** 674 tests passed; the default two-robot, three-order simulation completed successfully in **4,550 ticks / 227.5 simulated seconds**, with **four wall-verified entrances**, both robots back at base and `return_before_reassignment=true`. The reported minimum inter-robot clearance was approximately **0.157 m**. The report's pedestrian fields were `null` because the default scenario omitted pedestrians.
 
-1. **Return to base:** target behavior versus immediate post-delivery availability in the current scheduler.
-2. **Global routing:** define how collision-free point-to-point routes will be generated for the first delivery demo; decide whether A\* is retained only as a comparison baseline.
-3. **ALNS scope:** define objective, constraints and whether multi-order batching is allowed without breaking FCFS.
-4. **Repository shape:** use the real `src/aifr/` package, not a second competing legacy `backend/` tree.
-5. **Simulation launch:** document a full run command only after the Blender and Python components are integrated and verified.
+### Not yet verified or implemented as a general capability
 
-For implementation sequencing and completion checks, consult [phases.md](phases.md). This file is the architectural reference, not a second roadmap.
+- Live synchronized multi-robot Blender animation/control for Stages 7–9.
+- General crowds, multiple moving pedestrians, or arbitrary pedestrian spawning.
+- More than four robots in the current `Stage79Engine` configuration.
+- Guaranteed recovery from all local minima, congestion or deadlock cases.
+- Real-world hardware, motor dynamics, physical LiDAR noise or occlusion fidelity.
+- ALNS optimization of fleet-wide order allocation or full vehicle-routing schedules.
+
+**Recommended next boundary:** Verify the optional pedestrian comparison and inspect the local dashboard, then build a Blender adapter that **consumes the validated `stage79_trace.json`** and animates all robots without changing the approved cafeteria scene.
