@@ -153,6 +153,25 @@ class Stage79Engine:
             raise ValueError('Insufficient separated, traversable base slots')
         return {i+1:RobotRuntime(i+1,p,p) for i,p in enumerate(chosen)}
 
+    def add_robot(self) -> int:
+        """Add a robot at a separately validated base while the clock is running.
+
+        This V14 routing implementation currently supports at most four robots.
+        Existing poses, assigned orders and base slots are never changed.
+        """
+        if len(self.robots) >= 4:
+            raise ValueError('V14 live simulator supports at most four robots')
+        candidate = self._create_robots(len(self.robots) + 1)[len(self.robots) + 1]
+        # Reject if an active robot is currently passing the new base slot.
+        safe_gap = 2 * (math.hypot(.2,.18) + .05)
+        if any(math.dist((candidate.pose.x,candidate.pose.y), (r.pose.x,r.pose.y)) <= safe_gap
+               for r in self.robots.values()):
+            raise ValueError('New robot base is temporarily occupied; retry when clear')
+        rid = int(self.fleet.add_robot())
+        self.robots[rid] = candidate
+        self._event('ROBOT_ADDED', robot_id=rid, x=candidate.pose.x, y=candidate.pose.y)
+        return rid
+
     def _event(self, name, **fields):
         self.events.append({'tick':self.clock.tick,'event':name,**fields})
 

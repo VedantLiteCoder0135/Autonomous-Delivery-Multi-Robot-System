@@ -44,6 +44,18 @@ class RobotRegistry:
     def __len__(self) -> int:
         return len(self._robots)
 
+    def add_robot(self) -> RobotId:
+        """Register one new IDLE robot without disturbing existing assignments.
+
+        The navigation layer must validate a physical base slot before calling.
+        """
+        new_id = RobotId(len(self._robots) + 1)
+        if len(self._robots) >= MAX_ROBOTS:
+            raise ConfigError(f"robot limit {MAX_ROBOTS} reached")
+        self._robots[new_id] = Robot(new_id)
+        self._bus.publish(RobotAvailable(self._clock.now(), new_id))
+        return new_id
+
     # ------------------------------------------------------------- state changes
     def assign(self, robot_id: RobotId, order_id: OrderId) -> None:
         """IDLE -> BUSY with ``order_id``. Intended to be called by the scheduler only."""

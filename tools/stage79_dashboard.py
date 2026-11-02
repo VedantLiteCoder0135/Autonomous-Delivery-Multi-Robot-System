@@ -16,6 +16,7 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from tools.stage79_engine import Stage79Engine, load_reference
+from tools.live_pedestrians import LivePedestrians
 
 
 HTML = r'''<!doctype html>
@@ -48,6 +49,14 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:left;b
 <label class="small" for="speed">Playback speed</label> <select id="speed" onchange="control('speed',+this.value)"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option><option value="16">16×</option></select>
 <div id="message"></div></div>
 <div class="panel"><h2>New food order</h2><form id="create"><select id="table" aria-label="Table"></select><select id="station" aria-label="Food station"></select><button class="primary" type="submit">Add READY order</button></form><p class="small">Dispatch follows READY-time FCFS. Robots cannot be reassigned until they return to base.</p></div>
+<div class="panel"><h2>Live agent controls</h2>
+<div class="controls"><button onclick="control('add_robot')">Add delivery robot (up to 4)</button></div>
+<form id="pedestrian"><input id="px" type="number" step="0.01" placeholder="Start X" required>
+<input id="py" type="number" step="0.01" placeholder="Start Y" required>
+<input id="ex" type="number" step="0.01" placeholder="End X" required>
+<input id="ey" type="number" step="0.01" placeholder="End Y" required>
+<button class="primary" type="submit">Add moving pedestrian</button></form>
+<p class="small">World coordinates in metres. Routes crossing occupied cells are rejected.</p></div>
 <div class="panel"><h2>Live metrics</h2><div class="statrow"><div class="stat"><span class="small">Simulation time</span><strong id="clock">0s</strong></div><div class="stat"><span class="small">Ready queue</span><strong id="queued">0</strong></div><div class="stat"><span class="small">Entrances</span><strong id="entrances">0/4</strong></div></div>
 <h3>Robot fleet</h3><table><thead><tr><th>Robot</th><th>Phase</th><th>Order</th><th>Available</th></tr></thead><tbody id="robots"></tbody></table>
 <h3>Recent events</h3><div class="events" id="events"></div></div>
@@ -60,12 +69,14 @@ async function request(url,body){const o=body===undefined?{}:{method:'POST',head
 function message(t,bad=false){el('message').textContent=t;el('message').className=bad?'bad':'good'}
 async function control(action,value){try{const x=await request('/api/control',{action,value});message(x.message||action);refresh()}catch(e){message(e.message,true)}}
 el('create').addEventListener('submit',async e=>{e.preventDefault();try{const x=await request('/api/order',{table:el('table').value,station:el('station').value,ready:true});message('Created order #'+x.order_id);refresh()}catch(e){message(e.message,true)}});
+el('pedestrian').addEventListener('submit',async e=>{e.preventDefault();try{const x=await request('/api/pedestrian',{x:+el('px').value,y:+el('py').value,end_x:+el('ex').value,end_y:+el('ey').value});message('Added pedestrian #'+x.pedestrian_id);refresh()}catch(e){message(e.message,true)}});
 function rect(r,fill){ctx.fillStyle=fill;const x=X(r.min_x),y=Y(r.max_y),w=(r.max_x-r.min_x)*scale,h=(r.max_y-r.min_y)*scale;ctx.fillRect(x,y,w,h)}
 let scale=1;function X(x){return 22+(x-scene.origin[0])*scale}function Y(y){return canvas.height-22-(y-scene.origin[1])*scale}
 function dot(x,y,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.arc(X(x),Y(y),r,0,2*Math.PI);ctx.fill()}
 function draw(){if(!scene||!state)return;ctx.clearRect(0,0,canvas.width,canvas.height);scale=Math.min((canvas.width-44)/scene.width,(canvas.height-44)/scene.height);
 for(const f of scene.floors)rect(f.rect,'#edf2ee');for(const a of scene.chairs)rect(a.rect,'#d4dde5');for(const a of scene.tables)rect(a.rect,'#b9c6d1');for(const a of scene.counters)rect(a.rect,a.is_food_station?'#2974af':'#8a9bab');for(const a of scene.pillars)rect(a.rect,'#5d6974');for(const a of scene.walls)rect(a.rect,'#33465a');
 ctx.font='bold 11px sans-serif';for(const e of scene.entrances){dot(e.center_x,e.center_y,5,'#e59a27');ctx.fillStyle='#9c6516';ctx.fillText(e.name.replaceAll('_',' '),X(e.center_x)+7,Y(e.center_y)-5)}
+for(const p of (state.pedestrians||[])){dot(p.x,p.y,6,'#ed6655');ctx.fillStyle='#9a4335';ctx.fillText('P'+p.id,X(p.x)+8,Y(p.y)-8)}
 for(const [i,r] of state.robots.entries()){const col=C[i%C.length],trace=state.traces[String(r.id)]||[];if(trace.length){ctx.strokeStyle=col+'a0';ctx.lineWidth=2;ctx.beginPath();trace.forEach((p,j)=>j?ctx.lineTo(X(p[0]),Y(p[1])):ctx.moveTo(X(p[0]),Y(p[1])));ctx.stroke()}
 ctx.strokeStyle=col;ctx.lineWidth=2;ctx.beginPath();ctx.arc(X(r.x),Y(r.y),9,0,Math.PI*2);ctx.stroke();dot(r.x,r.y,5,col);ctx.beginPath();ctx.moveTo(X(r.x),Y(r.y));ctx.lineTo(X(r.x)+14*Math.cos(r.theta),Y(r.y)-14*Math.sin(r.theta));ctx.stroke();ctx.fillStyle='#16283b';ctx.fillText('R'+r.id,X(r.x)+12,Y(r.y)-10)} }
 function rows(id,items){el(id).innerHTML=items.join('')}
@@ -85,7 +96,8 @@ class Stage79App:
         self.env, self.grid, _ = load_reference(project)
         self.robot_count = robot_count
         self.lock = threading.RLock()
-        self.engine = Stage79Engine(self.env, self.grid, robot_count)
+        self.pedestrians = LivePedestrians(self.grid)
+        self.engine = Stage79Engine(self.env, self.grid, robot_count, pedestrians=self.pedestrians)
         self.closed = threading.Event()
 
     def map_data(self):
@@ -111,6 +123,10 @@ class Stage79App:
             result['traces'] = {str(i): [[p['x'], p['y']] for p in r.trace[::8]]
                                 for i, r in e.robots.items()}
             result['routes_count'] = len(e.routes)
+            result['pedestrians'] = [{'id':a.pedestrian_id, 'x':round(p.x,3),
+                                      'y':round(p.y,3), 'radius':p.radius}
+                                     for a in self.pedestrians.agents.values()
+                                     for p in [a.at(e.clock.now()/1e6)]]
             return result
 
     def order(self, data):
@@ -121,12 +137,25 @@ class Stage79App:
                                                          str(data['station']),
                                                          bool(data.get('ready', True)))}
 
+    def pedestrian(self, data):
+        with self.lock:
+            if self.engine.estopped:
+                raise ValueError('Emergency stop is latched')
+            e = self.engine
+            x, y = float(data['x']), float(data['y'])
+            end_x, end_y = float(data.get('end_x', x)), float(data.get('end_y', y))
+            pid = self.pedestrians.add(x, y, end_x, end_y, e.clock.now()/1e6,
+                                       robot_positions=((r.pose.x,r.pose.y) for r in e.robots.values()))
+            e._event('PEDESTRIAN_ADDED', pedestrian_id=pid)
+            return {'pedestrian_id':pid}
+
     def control(self, data):
         action = data.get('action')
         with self.lock:
             e = self.engine
             if action == 'reset':
-                self.engine = Stage79Engine(self.env, self.grid, self.robot_count)
+                self.pedestrians = LivePedestrians(self.grid)
+                self.engine = Stage79Engine(self.env, self.grid, self.robot_count, pedestrians=self.pedestrians)
                 return {'message': 'Simulation reset. Existing orders cleared.'}
             if action == 'estop':
                 e.estopped = True
@@ -134,6 +163,9 @@ class Stage79App:
                 return {'message': 'Emergency stop latched. Reset required.'}
             if e.estopped:
                 raise ValueError('Emergency stop latched. Reset to continue.')
+            if action == 'add_robot':
+                rid = e.add_robot()
+                return {'message': f'Added robot R{rid}', 'robot_id':rid}
             if action in ('start', 'resume'):
                 e.paused = False
                 return {'message': 'Simulation running'}
@@ -205,7 +237,7 @@ def make_handler(app: Stage79App):
                 self.send(404, {'error': 'Not found'})
 
         def do_POST(self):
-            if self.path not in ('/api/order', '/api/control'):
+            if self.path not in ('/api/order', '/api/control', '/api/pedestrian'):
                 self.send(404, {'error': 'Not found'})
                 return
             try:
@@ -215,7 +247,8 @@ def make_handler(app: Stage79App):
                 data = json.loads(self.rfile.read(n))
                 if not isinstance(data, dict):
                     raise ValueError('Expected JSON object')
-                result = app.order(data) if self.path == '/api/order' else app.control(data)
+                result = (app.order(data) if self.path == '/api/order' else
+                          app.pedestrian(data) if self.path == '/api/pedestrian' else app.control(data))
                 self.send(200, result)
             except (ValueError, KeyError, TypeError) as exc:
                 self.send(400, {'error': str(exc)})
@@ -224,7 +257,7 @@ def make_handler(app: Stage79App):
 
 def main():
     parser = argparse.ArgumentParser(description='Stage 9 localhost Python dashboard')
-    parser.add_argument('--robots', type=int, choices=(1, 2, 3, 4), default=2)
+    parser.add_argument('--robots', type=int, choices=(1, 2, 3, 4), default=1)
     parser.add_argument('--port', type=int, default=8765)
     args = parser.parse_args()
     app = Stage79App(ROOT, args.robots)
