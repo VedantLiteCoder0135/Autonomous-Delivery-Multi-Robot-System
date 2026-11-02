@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "original_scene_unchanged": true,
+  "source_scene": "/Users/vedantshah/Desktop/Projects/Autonomous-Delivery-Multi-Robot-System/AIFR_Cafeteria_V14_Recovered.blend",
+  "demo_scene": "/Users/vedantshah/Desktop/Projects/Autonomous-Delivery-Multi-Robot-System/outputs/AIFR_Stages_7_9_Demo.blend",
+  "robots": {
+    "1": {
+      "sample_count": 4550,
+      "keyframes": 926,
+      "linear_keyframes": true
+    },
+    "2": {
+      "sample_count": 4550,
+      "keyframes": 919,
+      "linear_keyframes": true
+    }
+  },
+  "entrances": 4,
+  "orders_delivered": 3,
+  "frames": 6825,
+  "fps": 30,
+  "mode": "offline Python trace playback; no Blender physics steering"
+}

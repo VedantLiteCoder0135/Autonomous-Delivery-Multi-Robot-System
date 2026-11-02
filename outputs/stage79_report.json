@@ -1,0 +1,318 @@
+{
+  "success": true,
+  "ticks": 4550,
+  "time_s": 227.5,
+  "entrances": [
+    {
+      "name": "main_entry",
+      "center_x": 4.1,
+      "center_y": 7.5,
+      "width": 1.9999999999999996,
+      "depth": 0.16,
+      "orientation": "horizontal"
+    },
+    {
+      "name": "side_exit_1",
+      "center_x": 19.0,
+      "center_y": 3.8,
+      "width": 0.16,
+      "depth": 1.5999999999999996,
+      "orientation": "vertical"
+    },
+    {
+      "name": "side_exit_2",
+      "center_x": 19.0,
+      "center_y": 11.1,
+      "width": 0.16,
+      "depth": 1.6000010000000007,
+      "orientation": "vertical"
+    },
+    {
+      "name": "sliding_entry_t11",
+      "center_x": 9.0,
+      "center_y": 9.0,
+      "width": 0.16,
+      "depth": 1.8000000000000007,
+      "orientation": "vertical"
+    }
+  ],
+  "entrance_grid_center_free": {
+    "main_entry": false,
+    "side_exit_1": false,
+    "side_exit_2": false,
+    "sliding_entry_t11": false
+  },
+  "orders": [
+    {
+      "id": 1,
+      "status": "DELIVERED",
+      "robot_id": 1,
+      "ready_seq": 1
+    },
+    {
+      "id": 2,
+      "status": "DELIVERED",
+      "robot_id": 2,
+      "ready_seq": 2
+    },
+    {
+      "id": 3,
+      "status": "DELIVERED",
+      "robot_id": 1,
+      "ready_seq": 3
+    }
+  ],
+  "robots": [
+    {
+      "id": 1,
+      "phase": "IDLE",
+      "base": [
+        5.9,
+        6.45
+      ],
+      "final_pose": [
+        5.989755668812352,
+        6.406808007193747
+      ],
+      "available": true,
+      "lidar_detection_ticks": 0
+    },
+    {
+      "id": 2,
+      "phase": "IDLE",
+      "base": [
+        5.8500000000000005,
+        5.45
+      ],
+      "final_pose": [
+        5.94045625438102,
+        5.491795533123082
+      ],
+      "available": true,
+      "lidar_detection_ticks": 0
+    }
+  ],
+  "return_before_reassignment": true,
+  "alns_routes": 9,
+  "alns_total_initial_cost": 86.296,
+  "alns_total_optimized_cost": 77.679,
+  "yield_events": 0,
+  "min_robot_clearance": 0.15662629746079593,
+  "min_pedestrian_clearance": null,
+  "failures": [],
+  "events": [
+    {
+      "tick": 0,
+      "event": "ORDER_CREATED",
+      "order_id": 1,
+      "table": "T11",
+      "station": "SANDWICH",
+      "ready": true
+    },
+    {
+      "tick": 0,
+      "event": "ORDER_CREATED",
+      "order_id": 2,
+      "table": "T12",
+      "station": "JUICE",
+      "ready": true
+    },
+    {
+      "tick": 0,
+      "event": "ORDER_CREATED",
+      "order_id": 3,
+      "table": "T13",
+      "station": "TEA",
+      "ready": true
+    },
+    {
+      "tick": 0,
+      "event": "ASSIGNED",
+      "robot_id": 1,
+      "order_id": 1
+    },
+    {
+      "tick": 0,
+      "event": "ROUTE",
+      "robot_id": 1,
+      "purpose": "PICKUP",
+      "path_points": 9,
+      "initial_cost": 7.697,
+      "optimized_cost": 5.694
+    },
+    {
+      "tick": 0,
+      "event": "TRAFFIC_ADMITTED",
+      "robot_id": 1,
+      "order_id": 1
+    },
+    {
+      "tick": 0,
+      "event": "ASSIGNED",
+      "robot_id": 2,
+      "order_id": 2
+    },
+    {
+      "tick": 0,
+      "event": "ROUTE",
+      "robot_id": 2,
+      "purpose": "PICKUP",
+      "path_points": 37,
+      "initial_cost": 8.896,
+      "optimized_cost": 8.152
+    },
+    {
+      "tick": 0,
+      "event": "TRAFFIC_ADMITTED",
+      "robot_id": 2,
+      "order_id": 2
+    },
+    {
+      "tick": 524,
+      "event": "LOADING",
+      "robot_id": 1,
+      "order_id": 1
+    },
+    {
+      "tick": 531,
+      "event": "ROUTE",
+      "robot_id": 1,
+      "purpose": "DELIVERY",
+      "path_points": 37,
+      "initial_cost": 8.21,
+      "optimized_cost": 7.677
+    },
+    {
+      "tick": 718,
+      "event": "LOADING",
+      "robot_id": 2,
+      "order_id": 2
+    },
+    {
+      "tick": 725,
+      "event": "ROUTE",
+      "robot_id": 2,
+      "purpose": "DELIVERY",
+      "path_points": 46,
+      "initial_cost": 8.077,
+      "optimized_cost": 7.823
+    },
+    {
+      "tick": 1193,
+      "event": "UNLOADING",
+      "robot_id": 1,
+      "order_id": 1
+    },
+    {
+      "tick": 1200,
+      "event": "DELIVERED_RETURN_PENDING",
+      "robot_id": 1,
+      "order_id": 1
+    },
+    {
+      "tick": 1200,
+      "event": "ROUTE",
+      "robot_id": 1,
+      "purpose": "RETURN",
+      "path_points": 29,
+      "initial_cost": 6.036,
+      "optimized_cost": 5.503
+    },
+    {
+      "tick": 1386,
+      "event": "UNLOADING",
+      "robot_id": 2,
+      "order_id": 2
+    },
+    {
+      "tick": 1393,
+      "event": "DELIVERED_RETURN_PENDING",
+      "robot_id": 2,
+      "order_id": 2
+    },
+    {
+      "tick": 1393,
+      "event": "ROUTE",
+      "robot_id": 2,
+      "purpose": "RETURN",
+      "path_points": 31,
+      "initial_cost": 10.852,
+      "optimized_cost": 8.281
+    },
+    {
+      "tick": 1704,
+      "event": "RETURNED_TO_BASE",
+      "robot_id": 1,
+      "order_id": 1
+    },
+    {
+      "tick": 1705,
+      "event": "ASSIGNED",
+      "robot_id": 1,
+      "order_id": 3
+    },
+    {
+      "tick": 1705,
+      "event": "ROUTE",
+      "robot_id": 1,
+      "purpose": "PICKUP",
+      "path_points": 2,
+      "initial_cost": 4.842,
+      "optimized_cost": 4.817
+    },
+    {
+      "tick": 1705,
+      "event": "TRAFFIC_ADMITTED",
+      "robot_id": 1,
+      "order_id": 3
+    },
+    {
+      "tick": 2104,
+      "event": "RETURNED_TO_BASE",
+      "robot_id": 2,
+      "order_id": 2
+    },
+    {
+      "tick": 2143,
+      "event": "LOADING",
+      "robot_id": 1,
+      "order_id": 3
+    },
+    {
+      "tick": 2150,
+      "event": "ROUTE",
+      "robot_id": 1,
+      "purpose": "DELIVERY",
+      "path_points": 101,
+      "initial_cost": 15.797,
+      "optimized_cost": 15.295
+    },
+    {
+      "tick": 3369,
+      "event": "UNLOADING",
+      "robot_id": 1,
+      "order_id": 3
+    },
+    {
+      "tick": 3376,
+      "event": "DELIVERED_RETURN_PENDING",
+      "robot_id": 1,
+      "order_id": 3
+    },
+    {
+      "tick": 3376,
+      "event": "ROUTE",
+      "robot_id": 1,
+      "purpose": "RETURN",
+      "path_points": 85,
+      "initial_cost": 15.889,
+      "optimized_cost": 14.437
+    },
+    {
+      "tick": 4549,
+      "event": "RETURNED_TO_BASE",
+      "robot_id": 1,
+      "order_id": 3
+    }
+  ]
+}

@@ -46,6 +46,7 @@ src/aifr/simulation/__init__.py
 src/aifr/simulation/delivery.py
 src/aifr/simulation/dwa_delivery.py
 tests/test_architecture.py
+tests/test_blender_integration.py
 tests/test_clock_and_types.py
 tests/test_config.py
 tests/test_dwa.py

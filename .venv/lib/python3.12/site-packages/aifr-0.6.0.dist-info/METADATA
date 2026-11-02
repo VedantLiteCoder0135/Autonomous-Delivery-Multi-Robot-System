@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: aifr
+Version: 0.6.0
+Summary: AIFR multi-robot food delivery simulation - Stages 2–6: orders, geometry, grid, delivery, EKF
+Requires-Python: >=3.10
+Provides-Extra: dev
+Requires-Dist: pytest>=7; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: mypy; extra == "dev"
