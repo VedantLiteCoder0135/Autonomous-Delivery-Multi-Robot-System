@@ -2,7 +2,7 @@
 
 A Python-based robotics simulation for autonomous food delivery inside an L-shaped cafeteria. Robots receive food orders, navigate between counters and tables, avoid obstacles, coordinate with other robots, and **return to their assigned base before becoming available for another order**.
 
-The project uses the recovered **Cafeteria V14** environment, a modular robotics engine, and a local browser dashboard. The integrated **Stages 1–9** simulation runs in Python independently of Blender. Blender is currently used for scene authoring/extraction and earlier offline demonstrations; **the Stages 7–9 multi-robot simulation is not yet integrated into Blender playback**.
+The project uses the recovered **Cafeteria V14** environment, a modular robotics engine, and a Blender-native interactive control panel (plus the original optional browser dashboard). The integrated **Stages 1–9** simulation runs in Python independently of Blender. The Blender-native controller now runs the same fixed-step Python engine directly inside Blender. It is not an independent physics simulator; GUI verification must be performed locally.
 
 ## Features
 
@@ -15,13 +15,13 @@ The project uses the recovered **Cafeteria V14** environment, a modular robotics
 | Perception | Simulated LiDAR, basic obstacle tracking and EKF pose estimation |
 | Fleet coordination | 1–4 robots, conservative traffic/yielding logic and collision checks |
 | Robot lifecycle | Pickup → delivery → **return to base** → available for reassignment |
-| Monitoring | Local browser dashboard with map, orders, robot states and simulation controls |
+| Monitoring | Blender-native UI with live customers, unique orders, robots, traffic diagnostics and speed controls; optional browser dashboard |
 
 ## Architecture at a glance
 
 ```mermaid
 flowchart TD
-    UI[CLI / Local dashboard] --> ORD[Orders and READY queue]
+    UI[Blender live UI / CLI / optional local dashboard] --> ORD[Orders and READY queue]
     ORD --> SCH[FCFS scheduler and fleet registry]
     SCH --> ENG[Stage 7–9 simulation engine]
     MAP[V14 geometry and occupancy grid] --> ROUTE[A* and ALNS route optimization]
@@ -85,6 +85,7 @@ This compares its trajectory against a pedestrian-free baseline. It is **not** y
 python tools/stage79_dashboard.py
 ```
 
+Visit **http://127.0.0.1:8765** in your browser. The dashboard supports order creation, map and fleet monitoring, start/pause/step, speed control, emergency stop, reset, and report export. The server binds locally; it is not a hosted service.
 
 ## Verification
 
@@ -127,10 +128,7 @@ AIFR_Project/
 │   ├── stage79_scenarios.py           # Pedestrian test scenario
 │   └── blender_stage16_bridge.py      # Earlier Blender scene adapter
 ├── tests/                              # Automated tests
-├── docs/
-│   ├── architecture.md
-│   ├── environment.md 
-│   ├── phases.md              
+├── docs/architecture.md               # Technical architecture
 └── pyproject.toml
 ```
 
@@ -141,3 +139,21 @@ AIFR_Project/
 **Still to do:** Verify the full multi-robot trajectory visually in Blender, support richer pedestrian traffic and larger fleets, strengthen deadlock/recovery behavior, and validate the simulation under more demanding scenarios. The current ALNS component optimizes individual route geometry; **order assignment remains FCFS**, not an ALNS vehicle-routing solver.
 
 For reproduction details, see [`STAGES_7_TO_9_VERIFICATION.md`](STAGES_7_TO_9_VERIFICATION.md).
+
+## Blender-native live demonstration
+
+Run from the Git-connected repository root:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender "$(pwd)/AIFR_Cafeteria_V14_Recovered.blend" --python "$(pwd)/tools/blender_integration_live.py"
+```
+
+Open **N → AIFR** in the 3D viewport. Add customers via one of four doors,
+watch them queue at CASH, pay, sit at a reserved position and create an
+individual food delivery order. The order is READY only after seating.
+Directly add robots or manual orders, pause, reset, and select 1×–16× speed
+targets. Shared-aisle traffic is deliberately serialized for safety; this
+is not unconstrained multi-robot traffic optimization.
+
+For repeatable acceptance runs and current limitations, see
+[Integration verification](INTEGRATION_VERIFICATION.md).

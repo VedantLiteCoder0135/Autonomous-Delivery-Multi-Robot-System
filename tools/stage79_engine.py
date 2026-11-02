@@ -32,6 +32,8 @@ from aifr.perception.lidar_adapter import LiDARObstacleTracker
 from aifr.perception.sensors import SensorSuite, lidar_scan
 from aifr.scheduling.scheduler import GlobalScheduler
 
+from tools.deadlock_manager import DeadlockManager
+
 AgentProvider = Callable[[float], Sequence[MovingObstacle]]
 
 
@@ -71,6 +73,8 @@ class RobotRuntime:
     linear: float = 0.
     angular: float = 0.
     stalls: int = 0
+    recovery_attempts: int = 0
+    blocked_reason: str = ""
     nav_ticks: int = 0
     dwell: int = 0
     detected_ticks: int = 0
@@ -86,14 +90,22 @@ class RobotRuntime:
 
 class Stage79Engine:
     def __init__(self, env, grid: OccupancyGrid, robot_count: int = 2,
-                 pedestrians: AgentProvider | None = None, seed: int = 11):
+                 pedestrians: AgentProvider | None = None, seed: int = 11,
+                 traffic_mode: str = "standard"):
         if not 1 <= robot_count <= 4:
             raise ValueError('Demo supports 1–4 robots')
+        if traffic_mode not in ("standard", "exclusive"):
+            raise ValueError("traffic_mode must be standard or exclusive")
+        self.traffic_mode = traffic_mode
+        self.deadlock_manager = DeadlockManager()
         self.env, self.grid = env, grid
         self.checker = CollisionChecker(env)
         self.clock = SimClock(50_000)
         self.bus = EventBus(record=True)
         self.orders = OrderManager(self.bus,self.clock)
+        # A customer owns exactly one immutable order identity after payment.
+        self.order_customers: dict[int,int] = {}
+        self.customer_orders: dict[int,int] = {}
         self.fleet = RobotRegistry(self.bus,self.clock,robot_count)
         self.scheduler = GlobalScheduler(self.bus,self.clock,self.orders,self.fleet,
                                          release_on_delivery=False)
@@ -175,17 +187,25 @@ class Stage79Engine:
     def _event(self, name, **fields):
         self.events.append({'tick':self.clock.tick,'event':name,**fields})
 
-    def create_order(self, table: str, station: str, ready: bool = True) -> int:
+    def create_order(self, table: str, station: str, ready: bool = True,
+                     customer_id: int | None = None) -> int:
         table=table.upper();station=station.upper()
         if table not in self.drops or station not in self.pickups:
             raise ValueError(f'Unknown or unreachable table/station: {table}/{station}')
+        if customer_id is not None and customer_id in self.customer_orders:
+            raise ValueError(f'Customer {customer_id} has already paid for order {self.customer_orders[customer_id]}')
         o=self.orders.create_order(table,station)
+        if customer_id is not None:
+            self.customer_orders[customer_id]=int(o.order_id)
+            self.order_customers[int(o.order_id)]=customer_id
         self.orders.start_preparing(o.order_id)
         if ready:self.orders.mark_ready(o.order_id)
-        self._event('ORDER_CREATED',order_id=int(o.order_id),table=table,station=station,ready=ready)
+        self._event('ORDER_CREATED',order_id=int(o.order_id),customer_id=customer_id,table=table,station=station,ready=ready)
         return int(o.order_id)
 
-    def ready_order(self, order_id: int):
+    def ready_order(self, order_id: int, customer_id: int | None = None):
+        if customer_id is not None and self.order_customers.get(int(order_id)) != customer_id:
+            raise ValueError('Customer/order identity mismatch while marking ready')
         self.orders.mark_ready(order_id)
         self._event('ORDER_READY',order_id=order_id)
 
@@ -236,6 +256,7 @@ class Stage79Engine:
         robot.planner=planner
         robot.destination=destination
         robot.stalls=0
+        robot.blocked_reason=''
         robot.tracker.reset()
         self.routes.append({'robot_id':robot.robot_id,'purpose':purpose,
                             'start':origin,'goal':destination,
@@ -271,7 +292,8 @@ class Stage79Engine:
                   ('TO_PICKUP', 'TO_CUSTOMER', 'LOADING', 'UNLOADING', 'RETURNING')]
         if active:
             return
-        for r in sorted(waiting, key=lambda x: x.robot_id)[:2]:
+        limit = 1 if self.traffic_mode == "exclusive" else 2
+        for r in sorted(waiting, key=lambda x: x.robot_id)[:limit]:
             self._launch(r)
 
     def _dispatch(self):
@@ -283,15 +305,41 @@ class Stage79Engine:
             rid = int(assignment.robot_id)
             r = self.robots[rid]
             order = self.orders.get(assignment.order_id)
+            if any(other.order_id == int(order.order_id) for other in self.robots.values() if other.robot_id != rid):
+                raise RuntimeError('Duplicate assignment of one order to multiple robots')
             r.order_id = int(order.order_id)
             self._event('ASSIGNED', robot_id=rid, order_id=r.order_id)
             active = sum(o.phase in ('TO_PICKUP', 'TO_CUSTOMER', 'LOADING',
                                      'UNLOADING', 'RETURNING') for o in self.robots.values())
-            if active >= 2:
+            limit = 1 if self.traffic_mode == "exclusive" else 2
+            if active >= limit:
                 r.phase = 'WAITING_FOR_AISLE'
                 self._event('TRAFFIC_WAIT', robot_id=rid, order_id=r.order_id)
             else:
                 self._launch(r)
+
+    def _attempt_stationary_recovery(self, robot: RobotRuntime, reason: str) -> bool:
+        """Bounded route replan, only while stopped; keep assigned order intact.
+
+        Does not permit reversing without swept-footprint validation, and
+        never marks orders delivered on a navigation failure.
+        """
+        robot.blocked_reason=reason
+        if robot.destination is None or robot.recovery_attempts >= 2:
+            return False
+        if abs(robot.linear)>1e-9 or abs(robot.angular)>1e-9:
+            return False
+        robot.recovery_attempts += 1
+        self._event('RECOVERY_REQUESTED',robot_id=robot.robot_id,
+                    order_id=robot.order_id,attempt=robot.recovery_attempts,
+                    reason=reason)
+        try:
+            destination=robot.destination
+            self._set_route(robot,destination,'RECOVERY')
+            return True
+        except (ValueError,RuntimeError) as exc:
+            robot.blocked_reason=f'{reason}; replan failed: {exc}'
+            return False
 
     def _arrived(self,r):
         r.linear=r.angular=0.
@@ -303,6 +351,9 @@ class Stage79Engine:
             r.phase='LOADING';r.dwell=8
             self._event('LOADING',robot_id=r.robot_id,order_id=r.order_id)
         elif r.phase=='TO_CUSTOMER':
+            if not self._custody_valid(r):
+                self._fail(r,'Order/customer custody mismatch at drop-off')
+                return
             self.orders.advance(r.order_id,OrderStatus.UNLOADING)
             r.phase='UNLOADING';r.dwell=8
             self._event('UNLOADING',robot_id=r.robot_id,order_id=r.order_id)
@@ -317,10 +368,20 @@ class Stage79Engine:
             self._event('RETURNED_TO_BASE',robot_id=r.robot_id,order_id=r.order_id)
             r.phase='IDLE';r.order_id=None
 
+    def _custody_valid(self, r):
+        if r.order_id is None:
+            return False
+        order = self.orders.get(r.order_id)
+        if int(order.robot_id or 0) != r.robot_id:
+            return False
+        customer = self.order_customers.get(r.order_id)
+        return customer is None or self.customer_orders.get(customer) == r.order_id
+
     def _fail(self,r,reason):
         self.failures.append(f'Robot {r.robot_id}: {reason}')
         self._event('FAULT',robot_id=r.robot_id,reason=reason)
         r.phase='FAULT';r.linear=r.angular=0.
+        r.blocked_reason=reason
         self.fleet.mark_faulted(r.robot_id)
 
     @staticmethod
@@ -357,7 +418,9 @@ class Stage79Engine:
                 if abs(r.linear)<1e-9 and abs(r.angular)<1e-9:
                     proposals[rid]=(r.pose,0.,0.,True)
                     r.stalls+=1
-                    if r.stalls>250:self._fail(r,'DWA deadlock: '+command.reason)
+                    if r.stalls>250:
+                        if not self._attempt_stationary_recovery(r,'DWA: '+command.reason):
+                            self._fail(r,'DWA deadlock: '+command.reason)
                     continue
                 self._fail(r,'DWA safety failure while moving: '+command.reason)
                 proposals[rid]=(r.pose,0.,0.,False)
@@ -395,7 +458,9 @@ class Stage79Engine:
                     self._fail(r,'Traffic reservation conflict while moving')
                 else:
                     r.stalls+=1;self.yield_events+=1
-                    if r.stalls>250:self._fail(r,'Traffic deadlock timeout')
+                    if r.stalls>250:
+                        if not self._attempt_stationary_recovery(r,'Traffic reservation blocked'):
+                            self._fail(r,'Traffic deadlock timeout')
                 nxt,v,w=r.pose,0.,0.
             elif not waiting and r.phase not in ('FAULT','IDLE','LOADING','UNLOADING','WAITING_FOR_AISLE'):
                 r.stalls=0
@@ -428,6 +493,9 @@ class Stage79Engine:
                         dest=self._best_waypoint(self.drops[str(order.table_id)],(r.pose.x,r.pose.y))
                         r.phase='TO_CUSTOMER';self._set_route(r,dest,'DELIVERY')
                     else:
+                        if not self._custody_valid(r):
+                            self._fail(r,'Order/customer custody mismatch during delivery confirmation')
+                            continue
                         self.orders.advance(r.order_id,OrderStatus.DELIVERED)
                         if not self.scheduler.is_return_pending(r.robot_id):
                             self._fail(r,'Scheduler released before return')
@@ -465,12 +533,20 @@ class Stage79Engine:
                 'robots':[{'id':r.robot_id,'x':round(r.pose.x,3),'y':round(r.pose.y,3),
                            'theta':round(r.pose.theta,3),'phase':r.phase,
                            'order_id':r.order_id,'base':[r.base.x,r.base.y],
-                           'fleet_available':self.fleet.is_available(r.robot_id)}
+                           'fleet_available':self.fleet.is_available(r.robot_id),
+                           'blocked_reason':r.blocked_reason,
+                           'recovery_attempts':r.recovery_attempts}
                           for r in self.robots.values()],
                 'orders':[{'id':int(o.order_id),'table':str(o.table_id),'station':str(o.station_id),
                            'status':o.status.value,'robot_id':int(o.robot_id) if o.robot_id else None,
-                           'ready_seq':o.ready_seq} for o in self.orders.all_orders()],
+                           'ready_seq':o.ready_seq,
+                           'customer_id':self.order_customers.get(int(o.order_id))}
+                          for o in self.orders.all_orders()],
                 'queue':[int(e) for e in self.scheduler.queue.order_ids()],
+                'traffic_mode':self.traffic_mode,
+                'pedestrian_yield_events':self.deadlock_manager.customer_yields,
+                'pedestrian_reroutes':self.deadlock_manager.customer_reroutes,
+                'order_customer_links':len(self.order_customers),
                 'failures':list(self.failures)}
         if not compact:
             result['recent_events']=self.events[-20:]

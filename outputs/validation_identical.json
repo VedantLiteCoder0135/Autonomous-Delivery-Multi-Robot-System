@@ -1,0 +1,73 @@
+{
+  "scenario": "identical",
+  "success": true,
+  "ticks": 5708,
+  "customers": 3,
+  "created_orders": 3,
+  "distinct_order_ids": true,
+  "customer_linkage_valid": true,
+  "return_before_reassignment": true,
+  "order_statuses": [
+    {
+      "id": 1,
+      "table": "T11",
+      "station": "SANDWICH",
+      "status": "DELIVERED",
+      "robot_id": 1,
+      "ready_seq": 1,
+      "customer_id": 1
+    },
+    {
+      "id": 2,
+      "table": "T11",
+      "station": "SANDWICH",
+      "status": "DELIVERED",
+      "robot_id": 2,
+      "ready_seq": 2,
+      "customer_id": 2
+    },
+    {
+      "id": 3,
+      "table": "T11",
+      "station": "TEA",
+      "status": "DELIVERED",
+      "robot_id": 1,
+      "ready_seq": 3,
+      "customer_id": 3
+    }
+  ],
+  "robots": [
+    {
+      "id": 1,
+      "x": 5.998,
+      "y": 6.471,
+      "theta": -2.93,
+      "phase": "IDLE",
+      "order_id": null,
+      "base": [
+        5.9,
+        6.45
+      ],
+      "fleet_available": true,
+      "blocked_reason": "",
+      "recovery_attempts": 0
+    },
+    {
+      "id": 2,
+      "x": 5.94,
+      "y": 5.492,
+      "theta": -2.703,
+      "phase": "IDLE",
+      "order_id": null,
+      "base": [
+        5.8500000000000005,
+        5.45
+      ],
+      "fleet_available": true,
+      "blocked_reason": "",
+      "recovery_attempts": 0
+    }
+  ],
+  "failures": [],
+  "limits": "Exclusive aisle policy, simple kinematic pedestrians; no general deadlock-freedom proof."
+}

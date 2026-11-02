@@ -1,0 +1,639 @@
+{
+  "schema_version": 1,
+  "source": "Stage 1-6 exported V14 map",
+  "robot_footprint_m": [
+    0.4,
+    0.36
+  ],
+  "static_clearance_margin_m": 0.05,
+  "grid_resolution_m": 0.1,
+  "grid_already_footprint_inflated": true,
+  "spawn": [
+    5.9,
+    6.45
+  ],
+  "entrances_count": 4,
+  "pickup_stations": [
+    {
+      "station": "JUICE",
+      "station_rect": {
+        "min_x": 11.0,
+        "max_x": 18.879999,
+        "min_y": 0.225,
+        "max_y": 1.075
+      },
+      "nearby_raw_object_gaps": [
+        {
+          "opposing_object": "WALL_right_below_side_gate_1",
+          "axis": "horizontal",
+          "raw_face_gap_m": 0.04
+        },
+        {
+          "opposing_object": "WALL_service_tea_sandwich_juice",
+          "axis": "vertical",
+          "raw_face_gap_m": 0.145
+        },
+        {
+          "opposing_object": "T04_S_SEAT",
+          "axis": "vertical",
+          "raw_face_gap_m": 1.23
+        },
+        {
+          "opposing_object": "T05_S_SEAT",
+          "axis": "vertical",
+          "raw_face_gap_m": 1.23
+        },
+        {
+          "opposing_object": "T04",
+          "axis": "vertical",
+          "raw_face_gap_m": 1.755
+        }
+      ],
+      "pickup_poses": [
+        {
+          "label": "pickup_JUICE_01",
+          "xy": [
+            12.5,
+            1.675
+          ],
+          "heading_rad": -1.570796,
+          "footprint_clear": true,
+          "astar_reachable": true,
+          "grid_path_cells": 76,
+          "residual_grid_clearance_m": 0.3,
+          "min_grid_clearance_along_path_m": 0.1,
+          "full_in_place_rotation_clear": true,
+          "verified_straight_final_approach": {
+            "distance_m": 0.6,
+            "entry_xy": [
+              12.5,
+              2.275
+            ],
+            "heading_rad": -1.570796
+          },
+          "status": "CANDIDATE_FEASIBLE",
+          "warnings": [
+            "STEERING_TO_ENTRY_UNVERIFIED"
+          ]
+        },
+        {
+          "label": "pickup_JUICE_02",
+          "xy": [
+            14.0,
+            1.675
+          ],
+          "heading_rad": -1.570796,
+          "footprint_clear": true,
+          "astar_reachable": true,
+          "grid_path_cells": 91,
+          "residual_grid_clearance_m": 0.3,
+          "min_grid_clearance_along_path_m": 0.1,
+          "full_in_place_rotation_clear": true,
+          "verified_straight_final_approach": {
+            "distance_m": 0.2,
+            "entry_xy": [
+              14.0,
+              1.875
+            ],
+            "heading_rad": -1.570796
+          },
+          "status": "CANDIDATE_FEASIBLE",
+          "warnings": [
+            "STEERING_TO_ENTRY_UNVERIFIED"
+          ]
+        },
+        {
+          "label": "pickup_JUICE_03",
+          "xy": [
+            15.5,
+            1.675
+          ],
+          "heading_rad": -1.570796,
+          "footprint_clear": true,
+          "astar_reachable": true,
+          "grid_path_cells": 106,
+          "residual_grid_clearance_m": 0.3,
+          "min_grid_clearance_along_path_m": 0.1,
+          "full_in_place_rotation_clear": true,
+          "verified_straight_final_approach": {
+            "distance_m": 0.6,
+            "entry_xy": [
+              15.5,
+              2.275
+            ],
+            "heading_rad": -1.570796
+          },
+          "status": "CANDIDATE_FEASIBLE",
+          "warnings": [
+            "STEERING_TO_ENTRY_UNVERIFIED"
+          ]
+        },
+        {
+          "label": "pickup_JUICE_04",
+          "xy": [
+            17.0,
+            1.675
+          ],
+          "heading_rad": -1.570796,
+          "footprint_clear": true,
+          "astar_reachable": true,
+          "grid_path_cells": 121,
+          "residual_grid_clearance_m": 0.3,
+          "min_grid_clearance_along_path_m": 0.1,
+          "full_in_place_rotation_clear": true,
+          "verified_straight_final_approach": {
+            "distance_m": 0.6,
+            "entry_xy": [
+              17.0,
+              2.275
+            ],
+            "heading_rad": -1.570796
+          },
+          "status": "CANDIDATE_FEASIBLE",
+          "warnings": [
+            "STEERING_TO_ENTRY_UNVERIFIED"
+          ]
+        }
+      ],
+      "candidate_feasible": 4
+    },
+    {
+      "station": "MAIN_COURSE",
+      "station_rect": {
+        "min_x": 0.21,
+        "max_x": 1.13,
+        "min_y": 3.6,
+        "max_y": 6.4
+      },
+      "nearby_raw_object_gaps": [
+        {
+          "opposing_object": "WALL_main_course_side",
+          "axis": "horizontal",
+          "raw_face_gap_m": 0.13
+        },
+        {
+          "opposing_object": "WALL_notch_before_main_entry",
+          "axis": "vertical",
+          "raw_face_gap_m": 1.02
+        },
+        {
+          "opposing_object": "PILLAR_05",
+          "axis": "horizontal",
+          "raw_face_gap_m": 2.68
+        },
+        {
+          "opposing_object": "WALL_service_tea_sandwich_juice",
+          "axis": "vertical",
+          "raw_face_gap_m": 3.52
+        },
+        {
+          "opposing_object": "PILLAR_06",
+          "axis": "horizontal",
+          "raw_face_gap_m": 7.68
+        }
+      ],
+      "pickup_poses": [
+        {
+          "label": "pickup_MAIN_COURSE",
+          "xy": [
+            1.73,
+            5.0
+          ],
+          "heading_rad": 3.141593,
+          "footprint_clear": true,
+          "astar_reachable": true,
+          "grid_path_cells": 43,
+          "residual_grid_clearance_m": 0.4,
+          "min_grid_clearance_along_path_m": 0.4,
+          "full_in_place_rotation_clear": true,
+          "verified_straight_final_approach": {
+            "distance_m": 0.6,
+            "entry_xy": [
+              2.33,
+              5.0
+            ],
+            "heading_rad": 3.141593
+          },
+          "status": "CANDIDATE_FEASIBLE",
+          "warnings": [
+            "STEERING_TO_ENTRY_UNVERIFIED"
+          ]
+        }
+      ],
+      "candidate_feasible": 1
+    },
+    {
+      "station": "SANDWICH",
+      "station_rect": {
+        "min_x": 7.349999,
+        "max_x": 9.95,
+        "min_y": 0.225,
+        "max_y": 1.075
+      },
+      "nearby_raw_object_gaps": [
+        {
+          "opposing_object": "WALL_service_tea_sandwich_juice",
+          "axis": "vertical",
+          "raw_face_gap_m": 0.145
+        },
+        {
+          "opposing_object": "T03",
+          "axis": "vertical",
+          "raw_face_gap_m": 1.755
+        },
+        {
+          "opposing_object": "T03_W_SEAT",
+          "axis": "vertical",
+          "raw_face_gap_m": 1.88
+        },
+        {
+          "opposing_object": "PILLAR_06",
+          "axis": "vertical",
+          "raw_face_gap_m": 3.035
+        },
+        {
+          "opposing_object": "T08",
+          "axis": "vertical",
+          "raw_face_gap_m": 4.405
+        }
+      ],
+      "pickup_poses": [
+        {
+          "label": "pickup_SANDWICH",
+          "xy": [
+            8.85,
+            1.675
+          ],
+          "heading_rad": -1.570796,
+          "footprint_clear": true,
+          "astar_reachable": true,
+          "grid_path_cells": 49,
+          "residual_grid_clearance_m": 0.3,
+          "min_grid_clearance_along_path_m": 0.3,
+          "full_in_place_rotation_clear": true,
+          "verified_straight_final_approach": {
+            "distance_m": 0.6,
+            "entry_xy": [
+              8.85,
+              2.275
+            ],
+            "heading_rad": -1.570796
+          },
+          "status": "CANDIDATE_FEASIBLE",
+          "warnings": [
+            "STEERING_TO_ENTRY_UNVERIFIED"
+          ]
+        }
+      ],
+      "candidate_feasible": 1
+    },
+    {
+      "station": "TEA",
+      "station_rect": {
+        "min_x": 4.45,
+        "max_x": 6.75,
+        "min_y": 0.225,
+        "max_y": 1.075
+      },
+      "nearby_raw_object_gaps": [
+        {
+          "opposing_object": "WALL_service_tea_sandwich_juice",
+          "axis": "vertical",
+          "raw_face_gap_m": 0.145
+        },
+        {
+          "opposing_object": "WALL_main_course_side",
+          "axis": "horizontal",
+          "raw_face_gap_m": 4.37
+        },
+        {
+          "opposing_object": "WALL_notch_after_main_entry",
+          "axis": "vertical",
+          "raw_face_gap_m": 6.345
+        },
+        {
+          "opposing_object": "WALL_right_below_side_gate_1",
+          "axis": "horizontal",
+          "raw_face_gap_m": 12.17
+        }
+      ],
+      "pickup_poses": [
+        {
+          "label": "pickup_TEA",
+          "xy": [
+            5.95,
+            1.675
+          ],
+          "heading_rad": -1.570796,
+          "footprint_clear": true,
+          "astar_reachable": true,
+          "grid_path_cells": 49,
+          "residual_grid_clearance_m": 0.3,
+          "min_grid_clearance_along_path_m": 0.3,
+          "full_in_place_rotation_clear": true,
+          "verified_straight_final_approach": {
+            "distance_m": 0.6,
+            "entry_xy": [
+              5.95,
+              2.275
+            ],
+            "heading_rad": -1.570796
+          },
+          "status": "CANDIDATE_FEASIBLE",
+          "warnings": [
+            "STEERING_TO_ENTRY_UNVERIFIED"
+          ]
+        }
+      ],
+      "candidate_feasible": 1
+    }
+  ],
+  "waiting_candidates": [
+    {
+      "label": "wait_arm_mid",
+      "xy": [
+        7.5,
+        6.0
+      ],
+      "footprint_clear": true,
+      "astar_reachable": true,
+      "residual_grid_clearance_m": 1.1,
+      "full_in_place_rotation_clear": true,
+      "non_blocking_for_traffic": "NOT_YET_VERIFIED"
+    },
+    {
+      "label": "wait_arm_low",
+      "xy": [
+        7.5,
+        2.5
+      ],
+      "footprint_clear": true,
+      "astar_reachable": true,
+      "residual_grid_clearance_m": 1.2,
+      "full_in_place_rotation_clear": true,
+      "non_blocking_for_traffic": "NOT_YET_VERIFIED"
+    },
+    {
+      "label": "wait_wing_entry",
+      "xy": [
+        12.5,
+        8.5
+      ],
+      "footprint_clear": true,
+      "astar_reachable": true,
+      "residual_grid_clearance_m": 0.1,
+      "full_in_place_rotation_clear": true,
+      "non_blocking_for_traffic": "NOT_YET_VERIFIED"
+    },
+    {
+      "label": "wait_wing_top",
+      "xy": [
+        12.5,
+        16.5
+      ],
+      "footprint_clear": true,
+      "astar_reachable": true,
+      "residual_grid_clearance_m": 0.341,
+      "full_in_place_rotation_clear": true,
+      "non_blocking_for_traffic": "NOT_YET_VERIFIED"
+    },
+    {
+      "label": "wait_wing_far",
+      "xy": [
+        16.0,
+        12.5
+      ],
+      "footprint_clear": true,
+      "astar_reachable": true,
+      "residual_grid_clearance_m": 0.483,
+      "full_in_place_rotation_clear": true,
+      "non_blocking_for_traffic": "NOT_YET_VERIFIED"
+    }
+  ],
+  "low_clearance_regions": [
+    {
+      "station": "JUICE",
+      "low_residual_clearance_cells_within_2m": 77,
+      "example_cells_xy": [
+        [
+          13.15,
+          1.45
+        ],
+        [
+          13.25,
+          1.45
+        ],
+        [
+          13.35,
+          1.45
+        ],
+        [
+          13.45,
+          1.45
+        ],
+        [
+          13.55,
+          1.45
+        ],
+        [
+          13.65,
+          1.45
+        ],
+        [
+          13.75,
+          1.45
+        ],
+        [
+          13.85,
+          1.45
+        ],
+        [
+          13.95,
+          1.45
+        ],
+        [
+          14.05,
+          1.45
+        ],
+        [
+          14.15,
+          1.45
+        ],
+        [
+          14.25,
+          1.45
+        ]
+      ]
+    },
+    {
+      "station": "MAIN_COURSE",
+      "low_residual_clearance_cells_within_2m": 60,
+      "example_cells_xy": [
+        [
+          0.45,
+          3.05
+        ],
+        [
+          0.45,
+          3.15
+        ],
+        [
+          0.45,
+          3.25
+        ],
+        [
+          0.55,
+          3.25
+        ],
+        [
+          0.65,
+          3.25
+        ],
+        [
+          0.75,
+          3.25
+        ],
+        [
+          0.85,
+          3.25
+        ],
+        [
+          0.95,
+          3.25
+        ],
+        [
+          1.05,
+          3.25
+        ],
+        [
+          1.15,
+          3.25
+        ],
+        [
+          1.25,
+          3.25
+        ],
+        [
+          1.35,
+          3.25
+        ]
+      ]
+    },
+    {
+      "station": "SANDWICH",
+      "low_residual_clearance_cells_within_2m": 58,
+      "example_cells_xy": [
+        [
+          10.35,
+          0.45
+        ],
+        [
+          10.45,
+          0.45
+        ],
+        [
+          10.55,
+          0.45
+        ],
+        [
+          10.35,
+          0.55
+        ],
+        [
+          10.35,
+          0.65
+        ],
+        [
+          10.35,
+          0.75
+        ],
+        [
+          10.35,
+          0.85
+        ],
+        [
+          10.35,
+          0.95
+        ],
+        [
+          10.35,
+          1.05
+        ],
+        [
+          10.35,
+          1.15
+        ],
+        [
+          10.35,
+          1.25
+        ],
+        [
+          10.35,
+          1.35
+        ]
+      ]
+    },
+    {
+      "station": "TEA",
+      "low_residual_clearance_cells_within_2m": 46,
+      "example_cells_xy": [
+        [
+          4.05,
+          0.45
+        ],
+        [
+          4.05,
+          0.55
+        ],
+        [
+          4.05,
+          0.65
+        ],
+        [
+          4.05,
+          0.75
+        ],
+        [
+          4.05,
+          0.85
+        ],
+        [
+          4.05,
+          0.95
+        ],
+        [
+          4.05,
+          1.05
+        ],
+        [
+          4.05,
+          1.15
+        ],
+        [
+          4.05,
+          1.25
+        ],
+        [
+          4.05,
+          1.35
+        ],
+        [
+          3.85,
+          1.45
+        ],
+        [
+          3.95,
+          1.45
+        ]
+      ]
+    }
+  ],
+  "scope_limitations": [
+    "Candidate feasible means collision-free pickup pose, grid reachability and a straight final approach segment; differential-drive steering to entry pose is NOT verified.",
+    "Raw counter-to-object gaps omit turns and other obstacles around the route.",
+    "Grid clearance is residual clearance to inflated occupancy, NOT physical aisle width.",
+    "Waiting points have not been proved not to block other agents.",
+    "Moving pedestrians, robot reservations and dynamic obstacles are not included.",
+    "No modifications are made to Blender geometry, engine routing or scheduler."
+  ]
+}

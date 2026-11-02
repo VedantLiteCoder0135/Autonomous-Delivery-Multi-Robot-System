@@ -1,0 +1,126 @@
+{
+  "entrances": 4,
+  "pickups": [
+    {
+      "label": "pickup_TEA",
+      "station": "TEA",
+      "approach_reachable": true,
+      "egress_reachable": true,
+      "full_rotation_clear": true,
+      "egress_segments": 48,
+      "motion_controller_verified": false
+    },
+    {
+      "label": "pickup_SANDWICH",
+      "station": "SANDWICH",
+      "approach_reachable": true,
+      "egress_reachable": true,
+      "full_rotation_clear": true,
+      "egress_segments": 48,
+      "motion_controller_verified": false
+    },
+    {
+      "label": "pickup_JUICE_01",
+      "station": "JUICE",
+      "approach_reachable": true,
+      "egress_reachable": true,
+      "full_rotation_clear": true,
+      "egress_segments": 75,
+      "motion_controller_verified": false
+    },
+    {
+      "label": "pickup_JUICE_02",
+      "station": "JUICE",
+      "approach_reachable": true,
+      "egress_reachable": true,
+      "full_rotation_clear": true,
+      "egress_segments": 90,
+      "motion_controller_verified": false
+    },
+    {
+      "label": "pickup_JUICE_03",
+      "station": "JUICE",
+      "approach_reachable": true,
+      "egress_reachable": true,
+      "full_rotation_clear": true,
+      "egress_segments": 105,
+      "motion_controller_verified": false
+    },
+    {
+      "label": "pickup_JUICE_04",
+      "station": "JUICE",
+      "approach_reachable": true,
+      "egress_reachable": true,
+      "full_rotation_clear": true,
+      "egress_segments": 120,
+      "motion_controller_verified": false
+    },
+    {
+      "label": "pickup_MAIN_COURSE",
+      "station": "MAIN_COURSE",
+      "approach_reachable": true,
+      "egress_reachable": true,
+      "full_rotation_clear": true,
+      "egress_segments": 42,
+      "motion_controller_verified": false
+    }
+  ],
+  "waiting": [
+    {
+      "label": "wait_arm_mid",
+      "xy": [
+        7.5,
+        6.0
+      ],
+      "blocks_pickup_access": [],
+      "nonblocking_for_pickup_access": true,
+      "candidate_only": true
+    },
+    {
+      "label": "wait_arm_low",
+      "xy": [
+        7.5,
+        2.5
+      ],
+      "blocks_pickup_access": [],
+      "nonblocking_for_pickup_access": true,
+      "candidate_only": true
+    },
+    {
+      "label": "wait_wing_entry",
+      "xy": [
+        12.5,
+        8.5
+      ],
+      "blocks_pickup_access": [],
+      "nonblocking_for_pickup_access": true,
+      "candidate_only": true
+    },
+    {
+      "label": "wait_wing_top",
+      "xy": [
+        12.5,
+        16.5
+      ],
+      "blocks_pickup_access": [],
+      "nonblocking_for_pickup_access": true,
+      "candidate_only": true
+    },
+    {
+      "label": "wait_wing_far",
+      "xy": [
+        16.0,
+        12.5
+      ],
+      "blocks_pickup_access": [],
+      "nonblocking_for_pickup_access": true,
+      "candidate_only": true
+    }
+  ],
+  "map_unchanged": true,
+  "limitations": [
+    "Egress A* path and stationary rotation do not prove DWA maneuver feasibility.",
+    "Nonblocking assessment checks static reachability from primary base to pickups, not dynamic traffic capacity.",
+    "Reservation checks use conservative occupied discs over the inflated occupancy grid."
+  ]
+}

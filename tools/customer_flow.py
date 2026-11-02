@@ -30,6 +30,7 @@ class Customer:
     cash_wait: float = 0.0
     radius: float = .14
     seat: tuple[float, float] | None = None
+    blocked_ticks: int = 0
 
 
 class CustomerFlow:
@@ -130,6 +131,10 @@ class CustomerFlow:
             return False
         if any(math.hypot(x-r.pose.x,y-r.pose.y)<.65 for r in self.engine.robots.values()):
             return False
+        # CASH is a single-server resource. Allow one customer in the cashier
+        # corridor at a time, including arrivals from different entrances.
+        if any(c.phase in ('TO_CASH','PAYING') for c in self.customers.values()):
+            return False
         return True
 
     def _admit(self, c):
@@ -171,16 +176,48 @@ class CustomerFlow:
                      if c.phase not in ('QUEUED','LEFT'))
 
     def _walk(self,c,dt):
+        manager=self.engine.deadlock_manager
         remaining=self.walking_speed*dt
+        blocked=False
         while remaining>1e-8 and c.route_index<len(c.route):
             tx,ty=c.route[c.route_index]
             length=math.hypot(tx-c.x,ty-c.y)
-            if length<=remaining+1e-8:
-                c.x,c.y=tx,ty;c.route_index+=1;remaining-=length
-            else:
-                ratio=remaining/length
-                c.x+=(tx-c.x)*ratio;c.y+=(ty-c.y)*ratio
-                remaining=0.
+            if length<1e-8:
+                c.route_index+=1
+                continue
+            travel=min(remaining,length)
+            nx=c.x+(tx-c.x)*travel/length
+            ny=c.y+(ty-c.y)*travel/length
+            if (not manager.pedestrian_step_safe((c.x,c.y),(nx,ny),
+                                                 self.engine.robots,c.radius)
+                or not manager.customer_step_safe((c.x,c.y),(nx,ny),
+                                                   self.customers,c.customer_id,c.radius)):
+                blocked=True
+                break
+            c.x,c.y=nx,ny
+            remaining-=travel
+            if travel>=length-1e-8:
+                c.route_index+=1
+        if blocked:
+            c.blocked_ticks=manager.record_block(c.customer_id)
+            if c.blocked_ticks % manager.policy.pedestrian_replan_after_ticks == 0:
+                goal=self.cash if c.phase=='TO_CASH' else c.seat
+                new_path=manager.reroute_around_agents(
+                    self.grid,(c.x,c.y),goal,self.engine.robots,
+                    self.customers,c.customer_id,c.radius)
+                if new_path:
+                    c.route=list(new_path)
+                    c.route_index=1 if len(new_path)>1 else len(new_path)
+                    manager.customer_reroutes+=1
+                    self.engine._event('CUSTOMER_REROUTED', customer_id=c.customer_id)
+            if (c.blocked_ticks >= manager.policy.pedestrian_warning_after_ticks
+                    and c.customer_id not in manager.warnings):
+                manager.warnings.add(c.customer_id)
+                self.engine._event('CUSTOMER_TRAFFIC_BLOCKED',customer_id=c.customer_id,
+                                   reason='No collision-free pedestrian passage; waiting')
+            return False
+        c.blocked_ticks=0
+        manager.clear_block(c.customer_id)
         return c.route_index>=len(c.route)
 
     def step(self,dt=.05):
@@ -197,20 +234,23 @@ class CustomerFlow:
                 if c.cash_wait>=self.payment_seconds:
                     # Payment creates the actual existing Stage 2 order.
                     # Keep it PREPARING until the customer has sat down.
-                    c.order_id=self.engine.create_order(c.table,c.station,ready=False)
+                    c.order_id=self.engine.create_order(c.table,c.station,ready=False,
+                                                        customer_id=c.customer_id)
                     self.engine._event('BILL_PAID',customer_id=c.customer_id,order_id=c.order_id)
                     self._set_route(c,c.seat)
                     c.phase='TO_TABLE'
             elif c.phase=='TO_TABLE':
                 if self._walk(c,dt):
                     c.phase='SEATED'
-                    self.engine.ready_order(c.order_id)
+                    self.engine.ready_order(c.order_id,customer_id=c.customer_id)
                     self.engine._event('CUSTOMER_SEATED',customer_id=c.customer_id,order_id=c.order_id,table=c.table)
-        for entrance in self.entrance_points:
-            waiting=next((c for c in self.customers.values()
-                          if c.entrance==entrance and c.phase=='QUEUED'),None)
-            if waiting is not None and self._entrance_available(entrance):
+        # One CASH approach slot; admit the oldest globally queued customer.
+        # This prevents a perpetually busy door from starving other entrances.
+        for waiting in sorted((c for c in self.customers.values()
+                               if c.phase=='QUEUED'), key=lambda c:c.customer_id):
+            if self._entrance_available(waiting.entrance):
                 self._admit(waiting)
+                break
 
     def snapshot(self):
         return [{'id':c.customer_id,'x':round(c.x,3),'y':round(c.y,3),

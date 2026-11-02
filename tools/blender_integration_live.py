@@ -8,6 +8,7 @@ The authoritative scene is never saved or modified by this controller.
 from __future__ import annotations
 
 import math
+import time
 from pathlib import Path
 import sys
 
@@ -20,6 +21,7 @@ for folder in (ROOT, ROOT/'src'):
 
 from tools.stage79_engine import Stage79Engine, load_reference
 from tools.customer_flow import CustomerFlow
+from tools.runtime_timing import requested_steps
 
 COLLECTION = 'AIFR_LIVE_CUSTOMER_SIM'
 ENGINE = None
@@ -33,7 +35,8 @@ def reset_runtime():
     env, grid, _ = load_reference(ROOT)
     # Forward reference means the same engine owns customer obstacle readings.
     ENGINE = Stage79Engine(env, grid, robot_count=1,
-                            pedestrians=lambda t: FLOW(t) if FLOW is not None else ())
+                            pedestrians=lambda t: FLOW(t) if FLOW is not None else (),
+                            traffic_mode="exclusive")
     FLOW = CustomerFlow(ENGINE)
     ERR = ''
     return ENGINE
@@ -88,6 +91,7 @@ def render():
         obj['phase']=c.phase
         obj['table']=c.table
         obj['order_id']=c.order_id or 0
+        obj['customer_id']=c.customer_id
     for ent in ENGINE.env.entrances:
         name='AIFR_SIM_ENTRANCE_'+ent.name
         desired.add(name)
@@ -116,8 +120,13 @@ def timer_update():
             if not ENGINE.paused and not ENGINE.estopped:
                 # Fixed 0.05s physics step: 2 steps per 0.1s timer at 1x.
                 # Accelerate simulation time, never scale dt or jump the clock.
-                for _ in range(2 * int(bpy.context.scene.aifr_live_speed)):
+                # Hard wall-time budget preserves Blender UI responsiveness.
+                # Requested speed is a target, not a guaranteed achieved rate.
+                wall_start=time.perf_counter()
+                for _ in range(requested_steps(bpy.context.scene.aifr_live_speed)):
                     one_step(draw=False)
+                    if time.perf_counter()-wall_start >= .075:
+                        break
                 render()
             else:
                 render()
@@ -167,6 +176,10 @@ class AIFR_OT_live_command(bpy.types.Operator):
                 ENGINE.paused=was_paused
             elif self.action=='add_robot':
                 ENGINE.add_robot()
+            elif self.action=='add_order':
+                oid=ENGINE.create_order(context.scene.aifr_live_table,
+                                         context.scene.aifr_live_station)
+                self.report({'INFO'},f'Manual order {oid} submitted')
             elif self.action=='estop':
                 ENGINE.estopped=True
                 ENGINE.paused=True
@@ -250,6 +263,7 @@ class AIFR_PT_native(bpy.types.Panel):
         box.prop(s,'aifr_live_table')
         box.prop(s,'aifr_live_station')
         box.operator('aifr.native_add_customer',text='Add Customer',icon='OUTLINER_OB_ARMATURE')
+        box.operator('aifr.native_control',text='Add Manual Order',icon='ADD').action='add_order'
         box.separator()
         box.label(text='Up to 4 customers per table; entrances queue.')
         box.label(text='Payment creates order automatically.')
@@ -260,7 +274,16 @@ class AIFR_PT_native(bpy.types.Panel):
                 box.label(text=f'C{c.customer_id} {c.phase}  {c.table}  order {c.order_id or "—"}')
         if ENGINE is not None:
             for r in ENGINE.robots.values():
-                box.label(text=f'R{r.robot_id}: {r.phase}')
+                box.label(text=f'R{r.robot_id}: {r.phase}  order {r.order_id or chr(8212)}')
+                if r.blocked_reason:
+                    box.label(text=r.blocked_reason[:55],icon='ERROR')
+            box.label(text='Order lifecycle:')
+            for order in ENGINE.snapshot(compact=True)['orders'][-5:]:
+                box.label(text=f"O{order['id']} C{order['customer_id'] or '-'} "
+                               f"R{order['robot_id'] or '-'}: {order['status']}")
+        box.label(text='Traffic: single-robot shared-aisle permit')
+        box.label(text=f'Pedestrian yields: {ENGINE.deadlock_manager.customer_yields}' if ENGINE else '')
+        box.label(text='Speed target depends on available CPU.')
         box.label(text='Python engine runs inside Blender.')
         box.label(text='No localhost / server required.')
 

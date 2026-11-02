@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aifr"
 version = "0.6.0"
-description = "AIFR multi-robot food delivery simulation - Stages 2–6: orders, geometry, grid, delivery, EKF"
+description = "AIFR V14 cafeteria multi-robot navigation, orders, traffic coordination and live Blender control"
 requires-python = ">=3.10"
 dependencies = []            # runtime: standard library only
 

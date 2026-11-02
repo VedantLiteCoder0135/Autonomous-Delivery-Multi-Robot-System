@@ -211,3 +211,20 @@ When updating the cafeteria or adding simulation complexity:
 - Treat integration of Stages 7–9 trajectory playback, multiple pedestrians and larger robot fleets into Blender as **future work**, not already delivered capabilities.
 
 For simulation architecture and current limitations, see [architecture.md](architecture.md).
+
+## Live traffic and geometry feasibility update
+
+The current Blender-native simulation reads the same recovered V14 geometry
+and 4 wall-verified entrances. The geometry hardening report tests static
+A* egress from all seven pickup candidates (7/7 pass) and whether a robot
+occupying each waiting candidate cuts off other pickup destinations (5/5
+preserve connectivity in this static check). These do **not** certify that
+DWA can steer through every passage in a crowded scene.
+
+CASH admits customers in a global FIFO queue; customers use distinct seat
+anchors (maximum four per table) and can reroute around robot/customer
+obstacles. Pickup and unloading waypoints remain separate from seated
+customer anchors. The original Blender mesh is not modified.
+
+Run `python -m tools.run_geometry_hardening` and inspect
+`outputs/geometry_egress_waiting.json` for diagnostics.
