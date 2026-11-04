@@ -45,7 +45,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:left;b
 <div class="legend"><span><i class="sw" style="background:#cbd5de"></i>Tables / chairs</span><span><i class="sw" style="background:#33465a"></i>Walls</span><span><i class="sw" style="background:#2974af"></i>Food counters</span><span><i class="sw" style="background:#e59a27"></i>Entrances</span><span><i class="sw" style="background:#168c71"></i>Robot traces</span></div>
 <p class="small">Uses the extracted Stage 1–6 grid and geometry. Movement is calculated by Python; this is not Blender physics.</p></div>
 <div class="panel"><h2>Order queue</h2><table><thead><tr><th>Order</th><th>Table</th><th>Station</th><th>Status</th><th>Robot</th></tr></thead><tbody id="orders"></tbody></table></div></section>
-<aside><div class="panel"><h2>Simulation controls</h2><div class="controls"><button class="primary" onclick="control('start')">Start / Resume</button><button onclick="control('pause')">Pause</button><button onclick="control('step')">Step</button><button class="danger" onclick="control('estop')">Emergency stop</button><button onclick="control('reset')">Reset</button><button onclick="control('save')">Save report</button></div>
+<aside><div class="panel"><h2>Simulation controls</h2><div class="controls"><button class="primary" onclick="control('start')">Start / Resume</button><button onclick="control('pause')">Pause</button><button onclick="control('retry_blocked')">Retry blocked</button><button onclick="control('step')">Step</button><button class="danger" onclick="control('estop')">Emergency stop</button><button onclick="control('reset')">Reset</button><button onclick="control('save')">Save report</button></div>
 <label class="small" for="speed">Playback speed</label> <select id="speed" onchange="control('speed',+this.value)"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option><option value="16">16×</option></select>
 <div id="message"></div></div>
 <div class="panel"><h2>New food order</h2><form id="create"><select id="table" aria-label="Table"></select><select id="station" aria-label="Food station"></select><button class="primary" type="submit">Add READY order</button></form><p class="small">Dispatch follows READY-time FCFS. Robots cannot be reassigned until they return to base.</p></div>
@@ -98,6 +98,7 @@ class Stage79App:
         self.lock = threading.RLock()
         self.pedestrians = LivePedestrians(self.grid)
         self.engine = Stage79Engine(self.env, self.grid, robot_count, pedestrians=self.pedestrians)
+        self.engine.walkers = self.pedestrians
         self.closed = threading.Event()
 
     def map_data(self):
@@ -156,6 +157,7 @@ class Stage79App:
             if action == 'reset':
                 self.pedestrians = LivePedestrians(self.grid)
                 self.engine = Stage79Engine(self.env, self.grid, self.robot_count, pedestrians=self.pedestrians)
+                self.engine.walkers = self.pedestrians
                 return {'message': 'Simulation reset. Existing orders cleared.'}
             if action == 'estop':
                 e.estopped = True
@@ -163,6 +165,8 @@ class Stage79App:
                 return {'message': 'Emergency stop latched. Reset required.'}
             if e.estopped:
                 raise ValueError('Emergency stop latched. Reset to continue.')
+            if action == 'retry_blocked':
+                return {'resumed': e.retry_blocked()}
             if action == 'add_robot':
                 rid = e.add_robot()
                 return {'message': f'Added robot R{rid}', 'robot_id':rid}

@@ -92,6 +92,11 @@ def render():
         obj.rotation_euler.z=r.pose.theta
         obj['phase']=r.phase
         obj['order_id']=r.order_id or 0
+        obj['navigation_state']=r.navigation_state
+        obj['blocked_reason']=r.blocked_reason
+        obj['retreating']=r.retreating
+        obj['hold']=r.hold_reason
+        obj['yields']=r.yields
     for c in FLOW.customers.values():
         if c.phase in ('QUEUED','LEFT'):continue
         name=f'AIFR_SIM_CUSTOMER_{c.customer_id}'
@@ -102,6 +107,14 @@ def render():
         obj['table']=c.table
         obj['order_id']=c.order_id or 0
         obj['customer_id']=c.customer_id
+    walkers = getattr(ENGINE.walkers, 'agents', {})
+    for walker in walkers.values():
+        person = walker.at(ENGINE.clock.now()/1e6)
+        name = f'AIFR_SIM_PATROL_{walker.pedestrian_id}'
+        desired.add(name)
+        obj = marker(name, person.radius, (.95,.55,.15,1))
+        obj.location = (person.x, person.y, .32)
+        obj['phase'] = 'PATROL'
     for ent in ENGINE.env.entrances:
         name='AIFR_SIM_ENTRANCE_'+ent.name
         desired.add(name)
@@ -182,6 +195,8 @@ class AIFR_OT_live_command(bpy.types.Operator):
             elif self.action=='start':
                 if ENGINE.estopped:raise ValueError('Reset after emergency stop')
                 ENGINE.paused=False
+            elif self.action=='retry_blocked':
+                ENGINE.retry_blocked()
             elif self.action=='pause':
                 ENGINE.paused=True
             elif self.action=='step':
@@ -294,6 +309,7 @@ class AIFR_PT_native(bpy.types.Panel):
         row=box.row(align=True)
         row.operator('aifr.native_control',text='Add Robot').action='add_robot'
         row.operator('aifr.native_control',text='Reset').action='reset'
+        box.operator('aifr.native_control',text='Retry Blocked').action='retry_blocked'
         box.operator('aifr.native_control',text='Emergency Stop',icon='CANCEL').action='estop'
         box.separator()
         box.label(text='Traffic & Aisle Mode:')
@@ -327,7 +343,10 @@ class AIFR_PT_native(bpy.types.Panel):
         if ENGINE is not None:
             for r in ENGINE.robots.values():
                 box.label(text=f'R{r.robot_id}: {r.phase}  order {r.order_id or chr(8212)}')
-                if r.blocked_reason:
+                if r.retreating or r.hold_reason:
+                    box.label(text=f'  yielding: {"retreat" if r.retreating else r.hold_reason.lower()}'
+                                   f'{(" to "+r.wait_on) if r.wait_on else ""}'[:55],icon='TIME')
+                elif r.blocked_reason:
                     box.label(text=r.blocked_reason[:55],icon='ERROR')
             box.label(text='Order lifecycle:')
             for order in ENGINE.snapshot(compact=True)['orders'][-5:]:
@@ -335,7 +354,10 @@ class AIFR_PT_native(bpy.types.Panel):
                                f"R{order['robot_id'] or '-'}: {order['status']}")
         box.label(text=f'Traffic: {ENGINE.traffic_mode.title()} (margin: {int(ENGINE.safety_margin*100)}cm)' if ENGINE else '')
         box.label(text=f'Obstacles: {len(ENGINE.dynamic_obstacles)} | Replans: {ENGINE.dynamic_replans}' if ENGINE else '')
+        box.label(text=f'Blocked robots: {sum(r.navigation_state == "BLOCKED" for r in ENGINE.robots.values())}' if ENGINE else '')
         box.label(text=f'Pedestrian yields: {ENGINE.deadlock_manager.customer_yields}' if ENGINE else '')
+        box.label(text=(f'Deadlocks resolved: {ENGINE.deadlocks_resolved} | Retreats: {ENGINE.retreats}'
+                        f' | Lane waits: {ENGINE.corridor_waits}') if ENGINE else '')
         box.label(text='Speed target depends on available CPU.')
         box.label(text='Python engine runs inside Blender.')
         box.label(text='No localhost / server required.')

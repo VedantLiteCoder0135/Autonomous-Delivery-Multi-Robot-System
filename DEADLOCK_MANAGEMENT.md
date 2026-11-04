@@ -2,6 +2,35 @@
 
 This patch adds a **conservative shared-aisle traffic manager** for the integrated project. It is intentionally a safety-first interim approach, not a guarantee of deadlock freedom under every crowd configuration.
 
+## Coordinated-mode deadlock handling (current)
+
+`traffic_mode="coordinated"` (the Blender default) runs several robots at once. Deadlocks are
+prevented and recovered without ever relaxing a collision check:
+
+| Layer | Where | What it does |
+|---|---|---|
+| Reservation | `Stage79Engine.step`, `DeadlockManager.robot_pair_conflict` | Priority-ordered swept-disc check. Closing inside the soft envelope is vetoed, but motion that does *not* reduce the gap is allowed (bases are closer than the envelope, so the old rule froze the fleet). Physical footprint contact (+2 cm) is never allowed. Each veto is recorded as a wait-for edge. |
+| Stuck detection | `_track_progress` | Progress = shorter remaining route or a clearly better heading. No progress for 4 s => `STUCK` (replaces the velocity-based stall counters and their FAULT timeouts). |
+| Wait-for graph | `traffic_coordinator.WaitForGraph` | Cycles among stalled robots are detected; the lowest-priority robot (priority ages with every completed yield, so nobody starves) retreats. |
+| Single-lane reservation | `traffic_coordinator.LaneMap/lane_claim` | A lower-priority robot does not enter a one-robot-wide aisle claimed head-on by a higher-priority one; if it is already in the other's lane it leaves to a passing bay first. Waived after 25 s so a stuck claimant cannot block forever. |
+| Retreat / refuge | `_begin_retreat`, `find_refuge` | Drives (as a normal DWA-checked route) to the nearest wide bay clear of other robots, their next 4.5 m of route, and nearby people; holds with backoff, then resumes the *same* mission. Order, phase and scheduler state are untouched. |
+| Recovery ladder | `_handle_stuck` | replan (A*/ALNS around traffic) -> yield/retreat -> longer backoff. Blocking never produces `FAULT`; only the exact-footprint, pedestrian and obstacle collision guards do. |
+| People | `_identify_blocker`, `CustomerFlow` | Robots give way to pedestrians at once. Walkers meeting head-on: the later arrival walks to a passing bay and waits; the other holds its ground. |
+
+Root causes fixed: (1) the reservation envelope (2x(radius+margin)) exceeded the base spacing, so every
+move was vetoed with no escalation; (2) DWA let a robot inside a person's margin creep 5 cm per tick
+toward contact, wedging robot and person together; (3) head-on robots/people in one-lane aisles had no
+retreat behaviour; (4) the lidar ray-march scanned all obstacles (now pre-filtered, same output).
+
+Diagnostics: `snapshot()["deadlock_stats"]` (`resolved`, `retreats`, `corridor_waits`, `stuck_events`) and
+per-robot `wait_on`, `hold`, `retreating`, `yields`; the Blender panel shows them.
+
+Tests: `tests/test_deadlock_scenarios.py` (`-m "not slow"` for the fast unit tests).
+
+Known limits: coordination is centralised and reactive (no time-parametrised multi-agent path
+planning); a corridor sealed for a long time leaves robots backing off and retrying rather than failing;
+seated customers are permanent obstacles at their seat anchors.
+
 ## Implemented
 
 - **Robot ↔ robot:** The live Blender engine runs with `traffic_mode="exclusive"`. At most **one robot** is admitted to active pickup / delivery / return travel at a time. Other assigned robots remain `WAITING_FOR_AISLE` and BUSY, preserving FCFS and return-before-reassignment. Once the active robot returns to base, the next is admitted. This prevents two robots entering the shared route head-on, at the cost of concurrency.
@@ -44,3 +73,44 @@ In Blender select **N → AIFR**, add two robots and multiple customers, then St
 - Reverify GUI motion in Blender on macOS; headless Python tests do **not** validate the Blender viewport.
 
 Keep `outputs/`, `.venv/`, caches, and generated `.blend` files out of Git. Commit source, tests and documentation only.
+
+## Persistent blocks and non-yielding patrols
+
+Navigation now exposes `navigation_state` independently of the order phase. A
+`BLOCKED` robot retains its order, custody links and fleet reservation. Four
+unsuccessful recoveries trigger a connectivity check against static geometry and
+loose obstacles, including alternative service waypoints. A sealed mission stops
+planning until obstacle, map or patrol geometry changes. Replanning and waiting
+cannot reset the mission recovery budget: twelve recovery events without mission
+progress for 120 simulation seconds also stop automatic retries. The native
+Blender panel and dashboard provide **Retry Blocked** for an operator-requested
+retry after correcting traffic; it does not release or reassign the order.
+
+Known patrol reservations survive the transient-agent routing fallback. Retreats
+may leave the reserved patrol line and use acceleration-limited reverse motion,
+but still pass DWA's obstacle prediction and braking checks, centralized robot
+reservations, static footprint checks and swept collision guards. Local planning
+uses current agents instead of retaining their old positions as permanent walls.
+Pedestrian radii come from the actual agents, and pedestrian/robot clearance is
+measured over the full simulation tick rather than only its endpoint.
+
+Run deterministic regressions and stress tests with `.venv/bin/python -m pytest`.
+They include four robots, 8 and 12 customers, narrow counter approaches, two
+non-yielding patrols, sealed destinations, retained order custody and bounded
+recovery. Stress scenarios require delivery and return within their tick limits.
+
+Run the Blender smoke test without saving the scene:
+
+```sh
+/Applications/Blender.app/Contents/MacOS/Blender --background \
+  AIFR_Cafeteria_V14_Recovered.blend --python tools/verify_blender_live.py
+```
+
+This checks actual Blender objects against engine robot/customer poses and blocked
+state. Viewport redraw, sidebar interaction and timer responsiveness require a
+manual Blender UI check.
+
+The former `.gitignore` directory was replaced with an ignore file. Its virtual
+environment was preserved at `.venv`, with launch scripts adjusted to that path.
+Tracked environment and bytecode entries were removed from the Git index; source,
+reference data, `.blend` scenes and existing tracked output artifacts are retained.

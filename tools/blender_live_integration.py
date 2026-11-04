@@ -63,6 +63,10 @@ def apply_state(state):
     scene = bpy.context.scene
     scene.aifr_live_status = ('STOPPED' if state.get('estopped') else
                               'PAUSED' if state['paused'] else 'RUNNING') + f"  {state['time_s']:.1f}s"
+    stats = state.get('deadlock_stats', {})
+    scene.aifr_deadlock_stats = (f"Resolved: {stats.get('resolved', 0)} | "
+                                 f"Retreats: {stats.get('retreats', 0)} | "
+                                 f"Blocked: {sum(r.get('navigation_state') == 'BLOCKED' for r in state['robots'])}")
     current = set()
     for info in state['robots']:
         name = f"AIFR_LIVE_ROBOT_{info['id']}"
@@ -73,6 +77,8 @@ def apply_state(state):
         obj.rotation_euler = (0,0,info['theta'])
         obj['phase'] = info['phase']
         obj['order_id'] = str(info['order_id'])
+        for key in ('navigation_state', 'blocked_reason', 'retreating', 'hold', 'yields'):
+            obj[key] = info.get(key, '')
     for info in state.get('pedestrians', []):
         name = f"AIFR_LIVE_PEDESTRIAN_{info['id']}"
         current.add(name)
@@ -178,6 +184,7 @@ class AIFR_PT_live(bpy.types.Panel):
         layout.prop(s,'aifr_station')
         layout.operator('aifr.live_order')
         layout.separator()
+        layout.label(text=s.aifr_deadlock_stats)
         layout.label(text='New pedestrian patrol')
         layout.operator('aifr.use_cursor')
         for name in ('aifr_spawn_x','aifr_spawn_y','aifr_patrol_x','aifr_patrol_y'):
@@ -198,6 +205,7 @@ def register():
     s=bpy.types.Scene
     s.aifr_live_status=bpy.props.StringProperty(default='DISCONNECTED')
     s.aifr_live_error=bpy.props.StringProperty(default='')
+    s.aifr_deadlock_stats=bpy.props.StringProperty(default='')
     s.aifr_table=bpy.props.StringProperty(name='Table',default='T11')
     s.aifr_station=bpy.props.StringProperty(name='Station',default='SANDWICH')
     for name in ('aifr_spawn_x','aifr_spawn_y','aifr_patrol_x','aifr_patrol_y'):

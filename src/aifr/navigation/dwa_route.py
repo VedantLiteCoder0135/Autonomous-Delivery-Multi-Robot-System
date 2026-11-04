@@ -125,7 +125,10 @@ class RouteDWA:
         state = pose
         min_gap = float('inf')
         cur_gap = self._gap(pose, 0., obstacles)
-        min_allowed = min(0.0, cur_gap - 0.05)
+        # Already inside a safety margin (a person stepped in): permit only motion that
+        # does not close the gap further. Allowing a few cm per tick let robots creep
+        # to near contact and wedge themselves against the person.
+        min_allowed = min(0.0, cur_gap - 0.002)
         for i in range(1, steps + 1):
             state = advance(state, v, w, dt)
             if not self._free(state, i*dt, obstacles, min_allowed=min_allowed):
@@ -143,7 +146,7 @@ class RouteDWA:
         if not self._physical_free(state,dt,obstacles):return False
         vv, ww = v, w
         for i in range(2, 20):
-            vv = max(0., vv - c.linear_acceleration*dt)
+            vv = math.copysign(max(0., abs(vv) - c.linear_acceleration*dt), vv)
             ww = math.copysign(max(0., abs(ww) - c.angular_acceleration*dt), ww)
             state = advance(state, vv, ww, dt)
             if not self._physical_free(state, i*dt, obstacles):
@@ -163,11 +166,14 @@ class RouteDWA:
         c = self.config
         goal = self.path[-1]
         remaining = math.dist((pose.x, pose.y), goal)
-        if remaining <= c.goal_tolerance and current_v < .05:
+        if remaining <= c.goal_tolerance and abs(current_v) < .05:
             return RouteCommand(0., 0., True, reached=True, reason='Goal reached')
         target = self._target(pose)
         dx, dy = target[0] - pose.x, target[1] - pose.y
         error = normalize(math.atan2(dy, dx) - pose.theta)
+        reverse = c.allow_reverse and abs(error) > math.pi / 2
+        if reverse:
+            error = normalize(error + math.pi)
         # Slow or rotate before a sharp corner; allow room to brake.
         desired_w = max(-c.max_angular, min(c.max_angular, 3.0*error))
         if abs(error) > .36:
@@ -178,8 +184,10 @@ class RouteDWA:
             desired_v = min(.25, max(0., remaining - .06) * .65)
         if remaining < .20:
             desired_v = min(desired_v, .10)
+        if reverse:
+            desired_v = -desired_v
         # Strict dynamic window, with endpoint samples to allow gradual braking.
-        vlow = max(0., current_v - c.linear_acceleration*c.dt)
+        vlow = max(-c.max_linear if c.allow_reverse else 0., current_v - c.linear_acceleration*c.dt)
         vhigh = min(c.max_linear, current_v + c.linear_acceleration*c.dt)
         wlow = max(-c.max_angular, current_w - c.angular_acceleration*c.dt)
         whigh = min(c.max_angular, current_w + c.angular_acceleration*c.dt)
@@ -211,10 +219,11 @@ class RouteDWA:
             # Execute the acceleration-limited braking command if its complete
             # braking rollout is collision-free; never teleport velocity to 0.
             fallback=[]
+            brake_v = max(vlow, min(vhigh, 0.))
             for w in ws:
-                if self._brake_safe(pose, vlow, w, obstacles):
+                if self._brake_safe(pose, brake_v, w, obstacles):
                     fallback.append((abs(w-desired_w),abs(w),w))
             if fallback:
-                return RouteCommand(vlow,min(fallback)[2],True,reason='Controlled braking')
+                return RouteCommand(brake_v,min(fallback)[2],True,reason='Controlled braking')
             return RouteCommand(0., 0., False, reason='No collision-free braking-admissible DWA command')
         return RouteCommand(best[1], best[2], True)

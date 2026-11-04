@@ -18,6 +18,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
 testpaths = ["tests"]
+markers = ["slow: long full-engine multi-robot scenarios (still run by default; deselect with -m 'not slow')"]
 
 [tool.mypy]
 strict = true

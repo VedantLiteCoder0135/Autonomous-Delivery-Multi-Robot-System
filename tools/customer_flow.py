@@ -31,11 +31,14 @@ class Customer:
     radius: float = .14
     seat: tuple[float, float] | None = None
     blocked_ticks: int = 0
+    yield_goal: tuple[float, float] | None = None   # passing bay while giving way
+    hold_ticks: int = 0                             # waiting in the bay for the other to pass
 
 
 class CustomerFlow:
     def __init__(self, engine, *, walking_speed: float = .65, payment_seconds: float = 1.5):
         self.engine = engine
+        engine.crowd = self
         self.grid = engine.grid
         self.env = engine.env
         self.walking_speed = walking_speed
@@ -177,8 +180,14 @@ class CustomerFlow:
 
     def _walk(self,c,dt):
         manager=self.engine.deadlock_manager
+        if c.hold_ticks > 0:
+            c.hold_ticks -= 1
+            if c.hold_ticks == 0:
+                self._set_route(c, self.cash if c.phase == 'TO_CASH' else c.seat)
+            return False
         remaining=self.walking_speed*dt
         blocked=False
+        holds_ground=False
         while remaining>1e-8 and c.route_index<len(c.route):
             tx,ty=c.route[c.route_index]
             length=math.hypot(tx-c.x,ty-c.y)
@@ -189,13 +198,18 @@ class CustomerFlow:
             nx=c.x+(tx-c.x)*travel/length
             ny=c.y+(ty-c.y)*travel/length
             dyn_obs = tuple(getattr(self.engine, 'dynamic_obstacles', {}).values())
-            if (not manager.pedestrian_step_safe((c.x,c.y),(nx,ny),
-                                                 self.engine.robots,c.radius)
-                or not manager.customer_step_safe((c.x,c.y),(nx,ny),
-                                                   self.customers,c.customer_id,c.radius)
-                or not manager.dynamic_obstacle_step_safe((c.x,c.y),(nx,ny),
-                                                           dyn_obs,c.radius)):
+            robot_hit = not manager.pedestrian_step_safe((c.x,c.y),(nx,ny),
+                                                         self.engine.robots,c.radius)
+            walker = manager.customer_blocker((c.x,c.y),(nx,ny),self.customers,c.customer_id,c.radius)
+            if (robot_hit or walker is not None
+                    or not manager.dynamic_obstacle_step_safe((c.x,c.y),(nx,ny),
+                                                               dyn_obs,c.radius)):
                 blocked=True
+                # Two walkers meeting head-on: the later arrival (higher id) gives way,
+                # the other holds its ground. Seated people never move, so always avoid them.
+                holds_ground = (walker is not None and not robot_hit
+                                and walker.phase in ('TO_CASH','PAYING','TO_TABLE')
+                                and walker.customer_id > c.customer_id)
                 break
             c.x,c.y=nx,ny
             remaining-=travel
@@ -220,8 +234,21 @@ class CustomerFlow:
                 manager.warnings.add(c.customer_id)
                 self.engine._event('CUSTOMER_TRAFFIC_BLOCKED',customer_id=c.customer_id,
                                    reason='No collision-free pedestrian passage; waiting')
+            # Give way properly: walk to a passing bay so the oncoming agent can get by.
+            if (c.blocked_ticks > 30 and not holds_ground and c.yield_goal is None
+                    and c.blocked_ticks % 30 == 1):
+                dyn_obs = tuple(getattr(self.engine, 'dynamic_obstacles', {}).values())
+                path, bay = manager.yield_route(self.grid, self.engine.lanes, (c.x,c.y),
+                                                self.engine.robots, self.customers,
+                                                c.customer_id, c.radius, dyn_obs)
+                if path:
+                    c.route=list(path)
+                    c.route_index=1 if len(path)>1 else len(path)
+                    c.yield_goal=bay
+                    self.engine._event('CUSTOMER_YIELDING',customer_id=c.customer_id)
+                    return False
             # When blocked in a narrow corridor by an oncoming robot, yield backward along approach path
-            if c.blocked_ticks > 15 and c.route_index > 1:
+            if c.blocked_ticks > 15 and c.route_index > 1 and not holds_ground:
                 prev_pt = c.route[c.route_index - 1]
                 dx = prev_pt[0] - c.x
                 dy = prev_pt[1] - c.y
@@ -241,7 +268,14 @@ class CustomerFlow:
             return False
         c.blocked_ticks=0
         manager.clear_block(c.customer_id)
-        return c.route_index>=len(c.route)
+        done=c.route_index>=len(c.route)
+        if done and c.yield_goal is not None:
+            # Reached the passing bay: wait for the oncoming walker, then resume.
+            c.yield_goal=None
+            c.hold_ticks=70+7*c.customer_id
+            self.engine._event('CUSTOMER_YIELDED',customer_id=c.customer_id)
+            return False
+        return done
 
     def step(self,dt=.05):
         # Admit at most one queued customer per entrance, in FIFO order.

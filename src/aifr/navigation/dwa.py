@@ -39,6 +39,7 @@ class DWAConfig:
     heading_weight: float = 1.0
     clearance_weight: float = 0.25
     speed_weight: float = 0.20
+    allow_reverse: bool = False
 
     def __post_init__(self) -> None:
         positive = (

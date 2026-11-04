@@ -21,6 +21,11 @@ class SensorSuite:
 def lidar_scan(pose:Pose, obstacles:list[tuple[float,float,float,float]], rays:int=36, max_range:float=4.0, step:float=0.04)->list[float]:
     """Raycast against axis-aligned obstacle bounding boxes; simplified 2D LiDAR."""
     if rays<1 or max_range<=0 or step<=0:raise ValueError('invalid lidar parameters')
+    # A sample is at most ``max_range`` from the sensor, so boxes farther than that
+    # can never register a hit: dropping them leaves every range unchanged.
+    obstacles=[b for b in obstacles
+               if math.hypot(max(b[0]-pose.x,0.,pose.x-b[2]),max(b[1]-pose.y,0.,pose.y-b[3]))<=max_range]
+    if not obstacles:return [max_range]*rays
     result=[]
     for i in range(rays):
         angle=pose.theta+2*math.pi*i/rays;c=math.cos(angle);s=math.sin(angle);d=max_range

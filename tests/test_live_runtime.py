@@ -107,3 +107,19 @@ def test_runtime_rejects_unsafe_robot_spawns(reference):
     app=Stage79App(ROOT,4)
     with pytest.raises(ValueError,match='four'):
         app.control({'action':'add_robot'})
+
+
+def test_operator_retry_preserves_blocked_order_and_respects_estop(reference):
+    app = Stage79App(ROOT, 1)
+    app.order({'table': 'T11', 'station': 'TEA'})
+    app.control({'action': 'start'})
+    app.engine.step()
+    robot = app.engine.robots[1]
+    robot.linear = robot.angular = 0.
+    app.engine._block_navigation(robot, 'Traffic recovery exhausted')
+    assert app.control({'action': 'retry_blocked'}) == {'resumed': 1}
+    assert robot.navigation_state == 'READY'
+    assert robot.order_id == 1 and not app.engine.fleet.is_available(1)
+    app.control({'action': 'estop'})
+    with pytest.raises(ValueError, match='Emergency stop'):
+        app.control({'action': 'retry_blocked'})
