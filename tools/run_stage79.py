@@ -7,7 +7,9 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+for folder in (ROOT, ROOT / 'src'):
+    if str(folder) not in sys.path:
+        sys.path.insert(0, str(folder))
 
 from tools.stage79_engine import Stage79Engine, load_reference
 from tools.stage79_scenarios import v14_pedestrian

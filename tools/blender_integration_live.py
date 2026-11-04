@@ -30,13 +30,23 @@ ERR = ''
 ROBOT_COLORS = ((.10,.7,.45,1),(.20,.45,.93,1),(.98,.68,.14,1),(.65,.30,.90,1))
 
 
+OBSTACLE_LOCATIONS = {
+    'T11_AISLE': ('Table 11 Aisle', 8.2, 5.0),
+    'MAIN_CORRIDOR': ('Main Central Corridor', 8.0, 3.2),
+    'T12_APPROACH': ('Table 12 Approach', 13.5, 7.5),
+    'CASH_CORRIDOR': ('Cashier Corridor', 2.8, 2.5),
+}
+
+
 def reset_runtime():
     global ENGINE, FLOW, ERR
     env, grid, _ = load_reference(ROOT)
+    traffic_mode = getattr(bpy.context.scene, 'aifr_live_traffic_mode', 'coordinated') if hasattr(bpy.context, 'scene') else 'coordinated'
     # Forward reference means the same engine owns customer obstacle readings.
     ENGINE = Stage79Engine(env, grid, robot_count=1,
                             pedestrians=lambda t: FLOW(t) if FLOW is not None else (),
-                            traffic_mode="exclusive")
+                            traffic_mode=traffic_mode,
+                            safety_margin=0.18)
     FLOW = CustomerFlow(ENGINE)
     ERR = ''
     return ENGINE
@@ -97,6 +107,12 @@ def render():
         desired.add(name)
         obj=marker(name,.13,(.95,.75,.18,1))
         obj.location=(ent.center_x,ent.center_y,.16)
+    for obs in ENGINE.dynamic_obstacles.values():
+        name=f'AIFR_SIM_OBSTACLE_{obs.name}'
+        desired.add(name)
+        obj=marker(name,obs.radius,(.85,.45,.15,1))
+        obj.location=(obs.x,obs.y,.24)
+        obj['obstacle_name']=obs.name
     for obj in tuple(entity_collection().objects):
         if obj.name.startswith('AIFR_SIM_') and obj.name not in desired:
             bpy.data.objects.remove(obj,do_unlink=True)
@@ -232,6 +248,33 @@ class AIFR_OT_add_customer(bpy.types.Operator):
             return {'CANCELLED'}
 
 
+class AIFR_OT_obstacle(bpy.types.Operator):
+    bl_idname = 'aifr.native_obstacle'
+    bl_label = 'Dynamic Obstacle Control'
+    action: bpy.props.StringProperty(default='add')
+
+    def execute(self, context):
+        global ERR
+        try:
+            if ENGINE is None:
+                raise ValueError('Engine not initialized')
+            if self.action == 'add':
+                loc_key = context.scene.aifr_live_obstacle_location
+                info = OBSTACLE_LOCATIONS.get(loc_key, ('Custom', 8.2, 5.0))
+                obs_name = f"CHAIR_{len(ENGINE.dynamic_obstacles) + 1}"
+                ENGINE.add_dynamic_obstacle(info[1], info[2], radius=0.22, name=obs_name)
+                self.report({'INFO'}, f"Moved Chair {obs_name} dropped at {info[0]} ({info[1]}, {info[2]})")
+            elif self.action == 'clear':
+                ENGINE.clear_dynamic_obstacles()
+                self.report({'INFO'}, "All dynamic obstacles cleared")
+            render()
+            return {'FINISHED'}
+        except Exception as exc:
+            ERR = str(exc)
+            self.report({'ERROR'}, ERR)
+            return {'CANCELLED'}
+
+
 class AIFR_PT_native(bpy.types.Panel):
     bl_label='AIFR Integrated Live Cafeteria'
     bl_idname='AIFR_PT_NATIVE'
@@ -253,6 +296,9 @@ class AIFR_PT_native(bpy.types.Panel):
         row.operator('aifr.native_control',text='Reset').action='reset'
         box.operator('aifr.native_control',text='Emergency Stop',icon='CANCEL').action='estop'
         box.separator()
+        box.label(text='Traffic & Aisle Mode:')
+        box.prop(s, 'aifr_live_traffic_mode', text='Mode')
+        box.separator()
         box.label(text='Simulation speed')
         speed_row=box.row(align=True)
         for value in ('1','2','4','8','16'):
@@ -264,6 +310,12 @@ class AIFR_PT_native(bpy.types.Panel):
         box.prop(s,'aifr_live_station')
         box.operator('aifr.native_add_customer',text='Add Customer',icon='OUTLINER_OB_ARMATURE')
         box.operator('aifr.native_control',text='Add Manual Order',icon='ADD').action='add_order'
+        box.separator()
+        box.label(text='Dynamic Obstacles (Moved Chair / Obstruction):')
+        box.prop(s, 'aifr_live_obstacle_location', text='Location')
+        obs_row = box.row(align=True)
+        obs_row.operator('aifr.native_obstacle', text='Drop Moved Chair', icon='PHYSICS').action = 'add'
+        obs_row.operator('aifr.native_obstacle', text='Clear Obstacles', icon='TRASH').action = 'clear'
         box.separator()
         box.label(text='Up to 4 customers per table; entrances queue.')
         box.label(text='Payment creates order automatically.')
@@ -281,14 +333,15 @@ class AIFR_PT_native(bpy.types.Panel):
             for order in ENGINE.snapshot(compact=True)['orders'][-5:]:
                 box.label(text=f"O{order['id']} C{order['customer_id'] or '-'} "
                                f"R{order['robot_id'] or '-'}: {order['status']}")
-        box.label(text='Traffic: single-robot shared-aisle permit')
+        box.label(text=f'Traffic: {ENGINE.traffic_mode.title()} (margin: {int(ENGINE.safety_margin*100)}cm)' if ENGINE else '')
+        box.label(text=f'Obstacles: {len(ENGINE.dynamic_obstacles)} | Replans: {ENGINE.dynamic_replans}' if ENGINE else '')
         box.label(text=f'Pedestrian yields: {ENGINE.deadlock_manager.customer_yields}' if ENGINE else '')
         box.label(text='Speed target depends on available CPU.')
         box.label(text='Python engine runs inside Blender.')
         box.label(text='No localhost / server required.')
 
 
-CLASSES=(AIFR_OT_live_command,AIFR_OT_speed,AIFR_OT_add_customer,AIFR_PT_native)
+CLASSES=(AIFR_OT_live_command,AIFR_OT_speed,AIFR_OT_add_customer,AIFR_OT_obstacle,AIFR_PT_native)
 
 
 def register():
@@ -305,6 +358,13 @@ def register():
     scene.aifr_live_entrance=bpy.props.EnumProperty(name='Entrance',items=entrances)
     scene.aifr_live_station=bpy.props.EnumProperty(name='Food station',items=stations)
     scene.aifr_live_table=bpy.props.EnumProperty(name='Customer table',items=tables)
+    def _on_traffic_mode_change(self, context):
+        global ENGINE
+        if ENGINE is not None:
+            ENGINE.traffic_mode = self.aifr_live_traffic_mode
+
+    scene.aifr_live_traffic_mode=bpy.props.EnumProperty(name='Traffic Mode',items=[('coordinated','Coordinated','Concurrent shared aisle'),('exclusive','Exclusive','Serialized')],default='coordinated',update=_on_traffic_mode_change)
+    scene.aifr_live_obstacle_location=bpy.props.EnumProperty(name='Obstacle Location',items=[('T11_AISLE','Table 11 Aisle','Drop in front of T11'),('MAIN_CORRIDOR','Main Corridor','Drop in center'),('T12_APPROACH','Table 12 Approach','Drop near T12'),('CASH_CORRIDOR','Cashier Corridor','Drop near CASH')],default='T11_AISLE')
     reset_runtime()
     bpy.app.timers.register(timer_update,first_interval=.5,persistent=False)
     print('AIFR NATIVE LIVE: N sidebar > AIFR; no HTTP server used')

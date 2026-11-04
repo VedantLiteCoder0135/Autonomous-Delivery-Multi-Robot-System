@@ -26,9 +26,10 @@ class RouteCommand:
 
 
 def line_clear(grid: OccupancyGrid, a: tuple[float, float], b: tuple[float, float], extra_clearance: float = 0.0) -> bool:
-    """Conservative dense line-of-sight check on an inflated occupancy grid."""
+    """Conservative dense line-of-sight check on an inflated occupancy grid with diagonal corner protection."""
     distance = math.dist(a, b)
-    n = max(1, math.ceil(distance / (grid.resolution * .33)))
+    n = max(1, math.ceil(distance / (grid.resolution * .1)))
+    prev_cell = None
     for i in range(n + 1):
         t = i / n
         x = a[0] + t * (b[0] - a[0]); y = a[1] + t * (b[1] - a[1])
@@ -39,8 +40,16 @@ def line_clear(grid: OccupancyGrid, a: tuple[float, float], b: tuple[float, floa
             (-.71*extra_clearance, .71*extra_clearance),
             (.71*extra_clearance, -.71*extra_clearance),
             (-.71*extra_clearance, -.71*extra_clearance))
-        if any(not grid.is_free(*grid.world_to_grid(x + dx, y + dy)) for dx, dy in probes):
-            return False
+        for dx, dy in probes:
+            c, r = grid.world_to_grid(x + dx, y + dy)
+            if not grid.is_free(c, r):
+                return False
+            if prev_cell is not None and prev_cell != (c, r):
+                pc, pr = prev_cell
+                if pc != c and pr != r:
+                    if not grid.is_free(pc, r) or not grid.is_free(c, pr):
+                        return False
+            prev_cell = (c, r)
     return True
 
 
@@ -67,7 +76,8 @@ class RouteDWA:
         # the current pose on the inflated occupancy grid. Otherwise the
         # controller can cut through a blocked adjacent cell and stall.
         while (self.index < len(self.path) - 1
-               and math.dist(here, self.path[self.index]) < .17
+               and (math.dist(here, self.path[self.index]) < .22
+                    or math.dist(here, self.path[self.index + 1]) < math.dist(here, self.path[self.index]))
                and line_clear(self.grid, here, self.path[self.index + 1])):
             self.index += 1
         # Look ahead only if the direct segment is clear; don't cut corners.
@@ -89,9 +99,20 @@ class RouteDWA:
                     - c.robot_radius - c.safety_margin - o.radius for o in obstacles),
                    default=float('inf'))
 
-    def _free(self, pose: Pose, time: float, obstacles: Sequence[MovingObstacle]) -> bool:
-        return (self.grid.is_free(*self.grid.world_to_grid(pose.x, pose.y))
-                and self._gap(pose, time, obstacles) > 0)
+    def _free(self, pose: Pose, time: float, obstacles: Sequence[MovingObstacle], min_allowed: float = 0.0) -> bool:
+        if not self.grid.is_free(*self.grid.world_to_grid(pose.x, pose.y)):
+            return False
+        return self._gap(pose, time, obstacles) >= min_allowed and self._physical_free(pose, time, obstacles)
+
+    def _physical_free(self, pose: Pose, time: float, obstacles: Sequence[MovingObstacle], tolerance: float = 0.0) -> bool:
+        """Physical collision check for emergency braking rollout (preventing actual contact)."""
+        if not self.grid.is_free(*self.grid.world_to_grid(pose.x, pose.y)):
+            return False
+        c = self.config
+        return min((math.hypot(pose.x - o.x - o.vx*time,
+                               pose.y - o.y - o.vy*time)
+                    - c.robot_radius - o.radius - 0.02 + tolerance for o in obstacles),
+                   default=float('inf')) > 0
 
     def _admissible(self, pose: Pose, v: float, w: float,
                     obstacles: Sequence[MovingObstacle]) -> tuple[bool, float]:
@@ -103,9 +124,11 @@ class RouteDWA:
         steps = max(1, math.ceil(.65 / dt))
         state = pose
         min_gap = float('inf')
+        cur_gap = self._gap(pose, 0., obstacles)
+        min_allowed = min(0.0, cur_gap - 0.05)
         for i in range(1, steps + 1):
             state = advance(state, v, w, dt)
-            if not self._free(state, i*dt, obstacles):
+            if not self._free(state, i*dt, obstacles, min_allowed=min_allowed):
                 return False, min_gap
             min_gap = min(min_gap, self._gap(state, i*dt, obstacles))
         # Verify that after the selected tick, max-rate braking is safe.
@@ -117,13 +140,13 @@ class RouteDWA:
                     obstacles: Sequence[MovingObstacle]) -> bool:
         c=self.config;dt=c.dt
         state = advance(pose, v, w, dt)
-        if not self._free(state,dt,obstacles):return False
+        if not self._physical_free(state,dt,obstacles):return False
         vv, ww = v, w
         for i in range(2, 20):
             vv = max(0., vv - c.linear_acceleration*dt)
             ww = math.copysign(max(0., abs(ww) - c.angular_acceleration*dt), ww)
             state = advance(state, vv, ww, dt)
-            if not self._free(state, i*dt, obstacles):
+            if not self._physical_free(state, i*dt, obstacles):
                 return False
             if vv == 0 and ww == 0:
                 break
@@ -133,8 +156,10 @@ class RouteDWA:
              obstacles: Sequence[MovingObstacle] = ()) -> RouteCommand:
         if not self.path:
             return RouteCommand(0., 0., False, reason='No global route')
-        if not self._free(pose, 0., obstacles):
-            return RouteCommand(0., 0., False, reason='Current estimated pose is blocked')
+        if not self.grid.is_free(*self.grid.world_to_grid(pose.x, pose.y)):
+            return RouteCommand(0., 0., False, reason='Current estimated pose is blocked on static grid')
+        if not self._physical_free(pose, 0., obstacles, tolerance=0.04):
+            return RouteCommand(0., 0., False, reason='Current estimated pose is in physical collision')
         c = self.config
         goal = self.path[-1]
         remaining = math.dist((pose.x, pose.y), goal)

@@ -188,10 +188,13 @@ class CustomerFlow:
             travel=min(remaining,length)
             nx=c.x+(tx-c.x)*travel/length
             ny=c.y+(ty-c.y)*travel/length
+            dyn_obs = tuple(getattr(self.engine, 'dynamic_obstacles', {}).values())
             if (not manager.pedestrian_step_safe((c.x,c.y),(nx,ny),
                                                  self.engine.robots,c.radius)
                 or not manager.customer_step_safe((c.x,c.y),(nx,ny),
-                                                   self.customers,c.customer_id,c.radius)):
+                                                   self.customers,c.customer_id,c.radius)
+                or not manager.dynamic_obstacle_step_safe((c.x,c.y),(nx,ny),
+                                                           dyn_obs,c.radius)):
                 blocked=True
                 break
             c.x,c.y=nx,ny
@@ -202,9 +205,11 @@ class CustomerFlow:
             c.blocked_ticks=manager.record_block(c.customer_id)
             if c.blocked_ticks % manager.policy.pedestrian_replan_after_ticks == 0:
                 goal=self.cash if c.phase=='TO_CASH' else c.seat
+                dyn_obs = tuple(getattr(self.engine, 'dynamic_obstacles', {}).values())
                 new_path=manager.reroute_around_agents(
                     self.grid,(c.x,c.y),goal,self.engine.robots,
-                    self.customers,c.customer_id,c.radius)
+                    self.customers,c.customer_id,c.radius,
+                    dynamic_obstacles=dyn_obs)
                 if new_path:
                     c.route=list(new_path)
                     c.route_index=1 if len(new_path)>1 else len(new_path)
@@ -215,6 +220,24 @@ class CustomerFlow:
                 manager.warnings.add(c.customer_id)
                 self.engine._event('CUSTOMER_TRAFFIC_BLOCKED',customer_id=c.customer_id,
                                    reason='No collision-free pedestrian passage; waiting')
+            # When blocked in a narrow corridor by an oncoming robot, yield backward along approach path
+            if c.blocked_ticks > 15 and c.route_index > 1:
+                prev_pt = c.route[c.route_index - 1]
+                dx = prev_pt[0] - c.x
+                dy = prev_pt[1] - c.y
+                dist_prev = math.hypot(dx, dy)
+                if dist_prev > 1e-4:
+                    step_back = min(self.walking_speed * dt, dist_prev)
+                    bx = c.x + (dx / dist_prev) * step_back
+                    by = c.y + (dy / dist_prev) * step_back
+                    dyn_obs = tuple(getattr(self.engine, 'dynamic_obstacles', {}).values())
+                    if (manager.pedestrian_step_safe((c.x, c.y), (bx, by), self.engine.robots, c.radius)
+                            and manager.customer_step_safe((c.x, c.y), (bx, by), self.customers, c.customer_id, c.radius)
+                            and manager.dynamic_obstacle_step_safe((c.x, c.y), (bx, by), dyn_obs, c.radius)):
+                        c.x, c.y = bx, by
+                        manager.customer_yields += 1
+                        if dist_prev <= step_back + 1e-4:
+                            c.route_index -= 1
             return False
         c.blocked_ticks=0
         manager.clear_block(c.customer_id)

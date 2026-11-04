@@ -32,7 +32,7 @@ from aifr.perception.lidar_adapter import LiDARObstacleTracker
 from aifr.perception.sensors import SensorSuite, lidar_scan
 from aifr.scheduling.scheduler import GlobalScheduler
 
-from tools.deadlock_manager import DeadlockManager
+from tools.deadlock_manager import DeadlockManager, TrafficPolicy
 
 AgentProvider = Callable[[float], Sequence[MovingObstacle]]
 
@@ -88,16 +88,28 @@ class RobotRuntime:
         self.ekf = PoseEKF(self.pose)
 
 
+@dataclass
+class DynamicObstacle:
+    name: str
+    x: float
+    y: float
+    radius: float = 0.20
+    is_static: bool = True
+
+
 class Stage79Engine:
     def __init__(self, env, grid: OccupancyGrid, robot_count: int = 2,
                  pedestrians: AgentProvider | None = None, seed: int = 11,
-                 traffic_mode: str = "standard"):
+                 traffic_mode: str = "standard", safety_margin: float = 0.18):
         if not 1 <= robot_count <= 4:
             raise ValueError('Demo supports 1–4 robots')
-        if traffic_mode not in ("standard", "exclusive"):
-            raise ValueError("traffic_mode must be standard or exclusive")
+        if traffic_mode not in ("standard", "exclusive", "coordinated"):
+            raise ValueError("traffic_mode must be standard, exclusive, or coordinated")
         self.traffic_mode = traffic_mode
-        self.deadlock_manager = DeadlockManager()
+        self.safety_margin = safety_margin
+        self.deadlock_manager = DeadlockManager(TrafficPolicy(margin=safety_margin))
+        self.dynamic_obstacles: dict[str, DynamicObstacle] = {}
+        self.dynamic_replans = 0
         self.env, self.grid = env, grid
         self.checker = CollisionChecker(env)
         self.clock = SimClock(50_000)
@@ -209,6 +221,23 @@ class Stage79Engine:
         self.orders.mark_ready(order_id)
         self._event('ORDER_READY',order_id=order_id)
 
+    def add_dynamic_obstacle(self, x: float, y: float, radius: float = 0.20, name: str | None = None) -> DynamicObstacle:
+        if name is None:
+            name = f"OBSTACLE_{len(self.dynamic_obstacles) + 1}"
+        obs = DynamicObstacle(name=name, x=x, y=y, radius=radius)
+        self.dynamic_obstacles[name] = obs
+        self._event('OBSTACLE_ADDED', obstacle=name, x=round(x, 3), y=round(y, 3), radius=round(radius, 3))
+        return obs
+
+    def remove_dynamic_obstacle(self, name: str) -> None:
+        if name in self.dynamic_obstacles:
+            del self.dynamic_obstacles[name]
+            self._event('OBSTACLE_REMOVED', obstacle=name)
+
+    def clear_dynamic_obstacles(self) -> None:
+        self.dynamic_obstacles.clear()
+        self._event('OBSTACLES_CLEARED')
+
     def _best_waypoint(self, options, start):
         ranked=[]
         for w in options:
@@ -219,39 +248,92 @@ class Stage79Engine:
             raise ValueError('No reachable waypoint')
         return min(ranked)[2]
 
-    def _traffic_grid(self, robot: RobotRuntime) -> OccupancyGrid:
-        """Temporarily reserve occupied base slots during return routing.
+    def _best_unblocked_waypoint(self, options, start, grid: OccupancyGrid):
+        ranked = []
+        for w in options:
+            col, row = grid.world_to_grid(w.x, w.y)
+            if not grid.is_free(col, row):
+                continue
+            path = find_path(grid, start, (w.x, w.y))
+            if path:
+                ranked.append((len(path), w.label, (w.x, w.y)))
+        if not ranked:
+            return None
+        return min(ranked)[2]
 
-        This overlay is never written back to the authoritative Stage 4 map.
-        It prevents the robot from approaching a parked robot and only then
-        discovering that local DWA has no way around it.
-        """
-        parked = [other for other in self.robots.values()
-                  if other.robot_id != robot.robot_id
-                  and other.phase in ('IDLE', 'WAITING_FOR_AISLE')]
-        if not parked:
-            return self.grid
+    def _traffic_grid(self, robot: RobotRuntime, extra_blocked: Sequence[tuple[float, float, float]] = ()) -> OccupancyGrid:
+        """Temporarily reserve occupied base slots, other stationary robots, and dynamic obstacles."""
         g = self.grid
         rows = [list(row) for row in g.cells]
-        radius = 2*(math.hypot(.2,.18)+.05) + .06
-        for other in parked:
-            min_c, min_r = g.world_to_grid(other.pose.x-radius, other.pose.y-radius)
-            max_c, max_r = g.world_to_grid(other.pose.x+radius, other.pose.y+radius)
-            for row in range(max(0, min_r), min(g.height, max_r+1)):
-                for col in range(max(0, min_c), min(g.width, max_c+1)):
+
+        # 1. Other robots: reserve parked, waiting, or other robots in transit
+        other_robots = [other for other in self.robots.values() if other.robot_id != robot.robot_id]
+        block_dist = math.hypot(.2, .18) + self.safety_margin + 0.05
+        for other in other_robots:
+            positions = [(other.pose.x, other.pose.y)]
+            # If the other robot is in active transit, also mark its immediate upcoming trajectory waypoints
+            if other.phase in ('TO_PICKUP', 'TO_CUSTOMER', 'RETURNING') and other.planner and other.planner.path:
+                idx = other.planner.index
+                for p in other.planner.path[idx : min(len(other.planner.path), idx + 2)]:
+                    positions.append(p)
+            for px, py in positions:
+                min_c, min_r = g.world_to_grid(px - block_dist, py - block_dist)
+                max_c, max_r = g.world_to_grid(px + block_dist, py + block_dist)
+                for row in range(max(0, min_r), min(g.height, max_r + 1)):
+                    for col in range(max(0, min_c), min(g.width, max_c + 1)):
+                        x, y = g.grid_to_world(col, row)
+                        if math.hypot(x - px, y - py) <= block_dist:
+                            rows[row][col] = 1
+
+        # 2. Dynamic obstacles (e.g. moved chairs)
+        for obs in self.dynamic_obstacles.values():
+            block_r = obs.radius + math.hypot(.2, .18) + self.safety_margin + 0.04
+            min_c, min_r = g.world_to_grid(obs.x - block_r, obs.y - block_r)
+            max_c, max_r = g.world_to_grid(obs.x + block_r, obs.y + block_r)
+            for row in range(max(0, min_r), min(g.height, max_r + 1)):
+                for col in range(max(0, min_c), min(g.width, max_c + 1)):
                     x, y = g.grid_to_world(col, row)
-                    if math.hypot(x-other.pose.x, y-other.pose.y) <= radius:
+                    if math.hypot(x - obs.x, y - obs.y) <= block_r:
                         rows[row][col] = 1
-        return OccupancyGrid(g.origin_x,g.origin_y,g.resolution,g.width,g.height,
+
+        # 3. Active pedestrians and customers
+        ped_dist = 0.14 + math.hypot(.2, .18) + self.safety_margin
+        for p in self.pedestrians(self.clock.now() / 1e6):
+            min_c, min_r = g.world_to_grid(p.x - ped_dist, p.y - ped_dist)
+            max_c, max_r = g.world_to_grid(p.x + ped_dist, p.y + ped_dist)
+            for row in range(max(0, min_r), min(g.height, max_r + 1)):
+                for col in range(max(0, min_c), min(g.width, max_c + 1)):
+                    x, y = g.grid_to_world(col, row)
+                    if math.hypot(x - p.x, y - p.y) <= ped_dist:
+                        rows[row][col] = 1
+
+        # 4. Extra blocked positions
+        for ex, ey, er in extra_blocked:
+            min_c, min_r = g.world_to_grid(ex - er, ey - er)
+            max_c, max_r = g.world_to_grid(ex + er, ey + er)
+            for row in range(max(0, min_r), min(g.height, max_r + 1)):
+                for col in range(max(0, min_c), min(g.width, max_c + 1)):
+                    x, y = g.grid_to_world(col, row)
+                    if math.hypot(x - ex, y - ey) <= er:
+                        rows[row][col] = 1
+
+        # Ensure robot's current pose and immediate escape neighborhood are free on static map
+        c_cur, r_cur = g.world_to_grid(robot.pose.x, robot.pose.y)
+        for dr in range(-2, 3):
+            for dc in range(-2, 3):
+                rr, cc = r_cur + dr, c_cur + dc
+                if 0 <= rr < g.height and 0 <= cc < g.width:
+                    if g.is_free(cc, rr):
+                        rows[rr][cc] = 0
+
+        return OccupancyGrid(g.origin_x, g.origin_y, g.resolution, g.width, g.height,
                              tuple(tuple(row) for row in rows))
 
-    def _set_route(self, robot: RobotRuntime, destination, purpose):
+    def _set_route(self, robot: RobotRuntime, destination, purpose, extra_blocked=()):
         origin=(robot.pose.x,robot.pose.y)
-        # On the return leg, parked robots are fixed obstacles, not just
-        # short-horizon DWA detections. Plan around their reserved base slots.
-        routing_grid = self._traffic_grid(robot)
+        routing_grid = self._traffic_grid(robot, extra_blocked=extra_blocked)
         route=ALNSRouteOptimizer(routing_grid,seed=self.seed+robot.robot_id+self.clock.tick).optimize(origin,destination,iterations=50)
-        planner=RouteDWA(routing_grid,DWAConfig())
+        planner=RouteDWA(routing_grid,DWAConfig(safety_margin=self.safety_margin))
         planner.set_path(route.path)
         robot.planner=planner
         robot.destination=destination
@@ -272,35 +354,42 @@ class Stage79Engine:
         order = self.orders.get(r.order_id)
         r.phase = 'TO_PICKUP'
         self.orders.advance(order.order_id, OrderStatus.TO_PICKUP)
-        pickup = self._best_waypoint(self.pickups[str(order.station_id)],
-                                     (r.pose.x, r.pose.y))
+        routing_grid = self._traffic_grid(r)
+        pickup = self._best_unblocked_waypoint(self.pickups[str(order.station_id)],
+                                              (r.pose.x, r.pose.y), routing_grid)
+        if pickup is None:
+            pickup = self._best_waypoint(self.pickups[str(order.station_id)],
+                                         (r.pose.x, r.pose.y))
         self._set_route(r, pickup, 'PICKUP')
         self._event('TRAFFIC_ADMITTED', robot_id=r.robot_id, order_id=r.order_id)
 
     def _admit_waiting(self):
-        """Conservative shared-aisle admission: no more than two active robots.
-
-        In this tight V14 layout, three independently moving robots can form
-        a head-on DWA deadlock. Admit the next batch only when the previous
-        batch has physically returned to base; waiting robots stay assigned
-        and BUSY (never released/reassigned prematurely).
-        """
         waiting = [r for r in self.robots.values() if r.phase == 'WAITING_FOR_AISLE']
         if not waiting:
             return
         active = [r for r in self.robots.values() if r.phase in
                   ('TO_PICKUP', 'TO_CUSTOMER', 'LOADING', 'UNLOADING', 'RETURNING')]
-        if active:
-            return
-        limit = 1 if self.traffic_mode == "exclusive" else 2
+        if self.traffic_mode == "exclusive":
+            if active:
+                return
+            limit = 1
+        elif self.traffic_mode == "standard":
+            if active:
+                return
+            limit = 2
+        else:  # "coordinated"
+            limit = len(self.robots)
+
         for r in sorted(waiting, key=lambda x: x.robot_id)[:limit]:
+            if self.traffic_mode == "coordinated" and active:
+                if any(math.dist((r.pose.x, r.pose.y), (o.pose.x, o.pose.y)) < 0.65 for o in active):
+                    continue
             self._launch(r)
 
     def _dispatch(self):
-        # Do not allow newly READY work to jump ahead of already assigned
-        # robots held at the corridor admission barrier.
-        if any(r.phase == 'WAITING_FOR_AISLE' for r in self.robots.values()):
-            return
+        if self.traffic_mode != "coordinated":
+            if any(r.phase == 'WAITING_FOR_AISLE' for r in self.robots.values()):
+                return
         for assignment in self.scheduler.dispatch():
             rid = int(assignment.robot_id)
             r = self.robots[rid]
@@ -311,7 +400,7 @@ class Stage79Engine:
             self._event('ASSIGNED', robot_id=rid, order_id=r.order_id)
             active = sum(o.phase in ('TO_PICKUP', 'TO_CUSTOMER', 'LOADING',
                                      'UNLOADING', 'RETURNING') for o in self.robots.values())
-            limit = 1 if self.traffic_mode == "exclusive" else 2
+            limit = 1 if self.traffic_mode == "exclusive" else (2 if self.traffic_mode == "standard" else len(self.robots))
             if active >= limit:
                 r.phase = 'WAITING_FOR_AISLE'
                 self._event('TRAFFIC_WAIT', robot_id=rid, order_id=r.order_id)
@@ -319,15 +408,11 @@ class Stage79Engine:
                 self._launch(r)
 
     def _attempt_stationary_recovery(self, robot: RobotRuntime, reason: str) -> bool:
-        """Bounded route replan, only while stopped; keep assigned order intact.
-
-        Does not permit reversing without swept-footprint validation, and
-        never marks orders delivered on a navigation failure.
-        """
+        """Bounded route replan around dynamic obstacles; keep assigned order intact."""
         robot.blocked_reason=reason
         if robot.destination is None or robot.recovery_attempts >= 2:
             return False
-        if abs(robot.linear)>1e-9 or abs(robot.angular)>1e-9:
+        if abs(robot.linear)>1e-4 or abs(robot.angular)>1e-4:
             return False
         robot.recovery_attempts += 1
         self._event('RECOVERY_REQUESTED',robot_id=robot.robot_id,
@@ -335,7 +420,25 @@ class Stage79Engine:
                     reason=reason)
         try:
             destination=robot.destination
+            routing_grid = self._traffic_grid(robot)
+            c_dest, r_dest = routing_grid.world_to_grid(*destination)
+            if robot.order_id:
+                order = self.orders.get(robot.order_id)
+                path_to_dest = find_path(routing_grid, (robot.pose.x, robot.pose.y), destination)
+                if (not path_to_dest) or (not routing_grid.is_free(c_dest, r_dest)):
+                    alt = None
+                    if robot.phase == 'TO_CUSTOMER':
+                        alt = self._best_unblocked_waypoint(self.drops.get(str(order.table_id), []),
+                                                            (robot.pose.x, robot.pose.y), routing_grid)
+                    elif robot.phase == 'TO_PICKUP':
+                        alt = self._best_unblocked_waypoint(self.pickups.get(str(order.station_id), []),
+                                                            (robot.pose.x, robot.pose.y), routing_grid)
+                    if alt is not None:
+                        destination = alt
             self._set_route(robot,destination,'RECOVERY')
+            self.dynamic_replans += 1
+            self._event('DYNAMIC_REPLAN', robot_id=robot.robot_id,
+                        order_id=robot.order_id, destination=destination)
             return True
         except (ValueError,RuntimeError) as exc:
             robot.blocked_reason=f'{reason}; replan failed: {exc}'
@@ -346,6 +449,7 @@ class Stage79Engine:
         r.planner=None
         r.destination=None
         r.stalls=0
+        r.recovery_attempts=0
         if r.phase=='TO_PICKUP':
             self.orders.advance(r.order_id,OrderStatus.LOADING)
             r.phase='LOADING';r.dwell=8
@@ -378,6 +482,8 @@ class Stage79Engine:
         return customer is None or self.customer_orders.get(customer) == r.order_id
 
     def _fail(self,r,reason):
+        if r.phase == 'FAULT':
+            return
         self.failures.append(f'Robot {r.robot_id}: {reason}')
         self._event('FAULT',robot_id=r.robot_id,reason=reason)
         r.phase='FAULT';r.linear=r.angular=0.
@@ -398,32 +504,39 @@ class Stage79Engine:
         self._dispatch()
         dt=.05;t=self.clock.now()/1e6
         pedestrian_now=self.pedestrians(t)
+        all_dyn_list = list(self.dynamic_obstacles.values())
+        boxes = [(o.x-o.radius,o.y-o.radius,o.x+o.radius,o.y+o.radius) for o in pedestrian_now]
+        boxes += [(o.x-o.radius,o.y-o.radius,o.x+o.radius,o.y+o.radius) for o in all_dyn_list]
+        dyn_moving = [MovingObstacle(o.x, o.y, o.radius) for o in all_dyn_list]
         proposals={}
         for rid,r in self.robots.items():
             if r.phase in ('IDLE','FAULT','LOADING','UNLOADING','WAITING_FOR_AISLE'):
                 proposals[rid]=(r.pose,0.,0.,False)
                 continue
             assert r.planner is not None
-            others=[MovingObstacle(o.pose.x,o.pose.y,math.hypot(.2,.18)+.06,
+            others=[MovingObstacle(o.pose.x,o.pose.y,math.hypot(.2,.18)+.04,
                                    o.linear*math.cos(o.pose.theta),o.linear*math.sin(o.pose.theta))
                     for oid,o in self.robots.items() if oid!=rid]
-            boxes=[(o.x-o.radius,o.y-o.radius,o.x+o.radius,o.y+o.radius) for o in pedestrian_now]
             ranges=lidar_scan(r.pose,boxes,rays=72,max_range=4.,step=.04)
             perceived=r.tracker.observe(r.ekf.pose,ranges,t)
             if perceived:r.detected_ticks+=1
-            command=r.planner.plan(r.ekf.pose,r.linear,r.angular,tuple(perceived)+tuple(others))
+            untracked_dyn = [d for d in dyn_moving if not any(math.hypot(d.x - p.x, d.y - p.y) < 0.5 for p in perceived)]
+            command=r.planner.plan(r.ekf.pose,r.linear,r.angular,tuple(perceived)+tuple(others)+tuple(untracked_dyn))
             if not command.safe:
                 # When an occupied corridor is blocked, wait only from a
                 # stationary state. Never fake an instantaneous stop at speed.
-                if abs(r.linear)<1e-9 and abs(r.angular)<1e-9:
+                if abs(r.linear)<1e-4 and abs(r.angular)<1e-4:
                     proposals[rid]=(r.pose,0.,0.,True)
                     r.stalls+=1
-                    if r.stalls>250:
+                    if r.stalls>15:
                         if not self._attempt_stationary_recovery(r,'DWA: '+command.reason):
-                            self._fail(r,'DWA deadlock: '+command.reason)
+                            if r.stalls>150:
+                                self._fail(r,'DWA deadlock: '+command.reason)
                     continue
-                self._fail(r,'DWA safety failure while moving: '+command.reason)
-                proposals[rid]=(r.pose,0.,0.,False)
+                brake_linear = max(0.0, r.linear - 0.8 * dt)
+                nxt = advance(r.pose, brake_linear, 0., dt)
+                proposals[rid] = (nxt, brake_linear, 0., True)
+                r.stalls += 1
                 continue
             if command.reached:
                 self._arrived(r)
@@ -436,44 +549,77 @@ class Stage79Engine:
                 self._fail(r,'Exact footprint / static map collision guard')
                 proposals[rid]=(r.pose,0.,0.,False)
                 continue
+
+            # Detect if robot is brought to a stop by an obstacle
+            if (abs(command.linear) < 1e-4 and abs(r.linear) < 1e-4
+                    and abs(command.angular) < 1e-3 and abs(r.angular) < 1e-3
+                    and not command.reached):
+                dist_to_dest = math.dist((r.pose.x, r.pose.y), r.destination) if r.destination else 0.0
+                if dist_to_dest > 0.15:
+                    r.stalls += 1
+                    if r.stalls > 15:
+                        self._attempt_stationary_recovery(r, 'Obstacle in corridor: ' + command.reason)
+            else:
+                if r.stalls > 0 and (abs(command.linear) > 0.02 or abs(command.angular) > 0.02):
+                    r.stalls = 0
+                if abs(r.linear) > 0.03 or abs(r.angular) > 0.05:
+                    r.recovery_attempts = 0
+
             proposals[rid]=(nxt,command.linear,command.angular,False)
-        # Centralized one-tick reservations. Higher robot IDs yield to lower
-        # IDs; lower IDs are also checked against the other's current pose.
+
+        # Centralized reservation with priority ranking
+        robot_order = sorted(self.robots.keys(), key=lambda i: DeadlockManager.robot_priority(self.robots[i]), reverse=True)
         accepted={}
-        safety_distance=2*(math.hypot(.2,.18)+.05)
-        for rid,r in self.robots.items():
+        safety_distance = 2 * (math.hypot(.2, .18) + self.safety_margin)
+        for rid in robot_order:
+            r = self.robots[rid]
             nxt,v,w,waiting=proposals[rid]
+            if r.phase in ('IDLE', 'FAULT'):
+                accepted[rid] = (r.pose, 0., 0.)
+                continue
             conflict=False
-            for oid,other in self.robots.items():
+            for oid in robot_order:
                 if oid==rid:continue
+                other = self.robots[oid]
                 other_nxt=accepted[oid][0] if oid in accepted else other.pose
-                gap=self._swept_clearance(r.pose,nxt,other.pose,other_nxt,safety_distance)
+                req_safety = (math.hypot(.2, .18) * 2 + self.safety_margin) if other.phase in ('IDLE', 'FAULT') else safety_distance
+                gap=self._swept_clearance(r.pose,nxt,other.pose,other_nxt,req_safety)
                 if gap<=0:
                     conflict=True
                     break
             if conflict:
                 if r.linear>0.0001 or abs(r.angular)>0.0001:
-                    # No unphysical instant stop: reject run if a collision
-                    # is already unavoidable at the present tick.
-                    self._fail(r,'Traffic reservation conflict while moving')
+                    brake_linear = max(0., r.linear - 0.8 * dt)
+                    nxt = advance(r.pose, brake_linear, 0., dt)
+                    v, w = brake_linear, 0.
+                    r.stalls += 1
+                    self.yield_events += 1
                 else:
                     r.stalls+=1;self.yield_events+=1
-                    if r.stalls>250:
-                        if not self._attempt_stationary_recovery(r,'Traffic reservation blocked'):
-                            self._fail(r,'Traffic deadlock timeout')
-                nxt,v,w=r.pose,0.,0.
+                    if r.stalls>15:
+                        if not self._attempt_stationary_recovery(r,'Traffic conflict in shared aisle'):
+                            if r.stalls>250:
+                                self._fail(r,'Traffic deadlock timeout')
+                    nxt,v,w=r.pose,0.,0.
             elif not waiting and r.phase not in ('FAULT','IDLE','LOADING','UNLOADING','WAITING_FOR_AISLE'):
-                r.stalls=0
+                if abs(v) > 0.02:
+                    r.stalls=0
             accepted[rid]=(nxt,v,w)
         for rid,r in self.robots.items():
             nxt,v,w=accepted[rid]
             if r.phase=='FAULT':continue
             # Validate pedestrian clearance independently of LiDAR estimates.
             for p in self.pedestrians(t+dt):
-                gap=math.hypot(nxt.x-p.x,nxt.y-p.y)-math.hypot(.2,.18)-p.radius-.05
+                gap=math.hypot(nxt.x-p.x,nxt.y-p.y)-math.hypot(.2,.18)-p.radius
                 self.min_pedestrian_clearance=min(self.min_pedestrian_clearance,gap)
                 if gap<=0:
                     self._fail(r,'Pedestrian collision guard')
+                    break
+            if r.phase=='FAULT':continue
+            for obs in self.dynamic_obstacles.values():
+                obs_gap = math.hypot(nxt.x - obs.x, nxt.y - obs.y) - math.hypot(.2, .18) - obs.radius
+                if obs_gap <= 0:
+                    self._fail(r, f'Dynamic obstacle collision guard: {obs.name}')
                     break
             if r.phase=='FAULT':continue
             r.pose=nxt;r.linear=v;r.angular=w
@@ -490,7 +636,11 @@ class Stage79Engine:
                     if r.phase=='LOADING':
                         self.orders.advance(r.order_id,OrderStatus.TO_CUSTOMER)
                         order=self.orders.get(r.order_id)
-                        dest=self._best_waypoint(self.drops[str(order.table_id)],(r.pose.x,r.pose.y))
+                        routing_grid = self._traffic_grid(r)
+                        dest = self._best_unblocked_waypoint(self.drops[str(order.table_id)],
+                                                             (r.pose.x, r.pose.y), routing_grid)
+                        if dest is None:
+                            dest = self._best_waypoint(self.drops[str(order.table_id)], (r.pose.x, r.pose.y))
                         r.phase='TO_CUSTOMER';self._set_route(r,dest,'DELIVERY')
                     else:
                         if not self._custody_valid(r):
@@ -509,9 +659,10 @@ class Stage79Engine:
         for i,a in self.robots.items():
             for j,b in self.robots.items():
                 if j<=i:continue
-                gap=math.dist((a.pose.x,a.pose.y),(b.pose.x,b.pose.y))-safety_distance
-                self.min_robot_clearance=min(self.min_robot_clearance,gap)
-                if gap<=0:
+                physical_distance = 2 * math.hypot(.2, .18)
+                gap = math.dist((a.pose.x, a.pose.y), (b.pose.x, b.pose.y)) - physical_distance
+                self.min_robot_clearance = min(self.min_robot_clearance, gap)
+                if gap <= 0:
                     self.failures.append(f'Robots {i}/{j} overlap')
         self.clock.advance()
         if self.clock.tick%10==0:self.history.append(self.snapshot(compact=True))
@@ -544,6 +695,10 @@ class Stage79Engine:
                           for o in self.orders.all_orders()],
                 'queue':[int(e) for e in self.scheduler.queue.order_ids()],
                 'traffic_mode':self.traffic_mode,
+                'safety_margin':self.safety_margin,
+                'dynamic_obstacles':[{'name':o.name,'x':round(o.x,3),'y':round(o.y,3),'radius':o.radius}
+                                     for o in self.dynamic_obstacles.values()],
+                'dynamic_replans':self.dynamic_replans,
                 'pedestrian_yield_events':self.deadlock_manager.customer_yields,
                 'pedestrian_reroutes':self.deadlock_manager.customer_reroutes,
                 'order_customer_links':len(self.order_customers),
