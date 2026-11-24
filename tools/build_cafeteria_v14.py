@@ -241,15 +241,20 @@ def chair(name, cx,cy,heading,mat):
     for a in [-.145,.145]:
         for b in [-.145,.145]:localpart('LEG'+str(a)+str(b),(a,b,.21),(.025,.025,.42),METAL)
 
+def heading_toward_table(table_x,table_y,chair_x,chair_y):
+    # Chair local +Y points forward; the backrest sits at local -Y.
+    dx,dy=table_x-chair_x,table_y-chair_y
+    return math.atan2(-dx,dy)
+
 def table(i,x,y):
     name=f'T{i:02d}'
     cube(name+'_TOP',(x,y),(1.02,.64,.055),WOOD,z=.755)
     cube(name+'_STEM',(x,y),(.065,.065,.70),METAL,z=.36)
     cube(name+'_BASE',(x,y),(.55,.21,.055),METAL,z=.04)
-    chair(name+'_N',x,y+.65,0,CH[(i+0)%len(CH)])
-    chair(name+'_S',x,y-.65,math.pi,CH[(i+1)%len(CH)])
-    chair(name+'_E',x+.84,y,math.pi/2,CH[(i+2)%len(CH)])
-    chair(name+'_W',x-.84,y,-math.pi/2,CH[(i+3)%len(CH)])
+    chair(name+'_N',x,y+.65,heading_toward_table(x,y,x,y+.65),CH[(i+0)%len(CH)])
+    chair(name+'_S',x,y-.65,heading_toward_table(x,y,x,y-.65),CH[(i+1)%len(CH)])
+    chair(name+'_E',x+.84,y,heading_toward_table(x,y,x+.84,y),CH[(i+2)%len(CH)])
+    chair(name+'_W',x-.84,y,heading_toward_table(x,y,x-.84,y),CH[(i+3)%len(CH)])
     tag(name,x-.20,y-.10,z=.79,size=.15)
 
 # Preserve the exact screenshot's 22 original table positions and numbering.
