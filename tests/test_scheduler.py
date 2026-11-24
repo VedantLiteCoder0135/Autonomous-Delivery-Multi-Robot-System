@@ -56,6 +56,27 @@ def test_excess_orders_wait_in_fcfs_order():
     assert core.scheduler.queue.order_ids() == ids[2:]
 
 
+def test_selected_dispatch_validates_and_commits_allocator_pairs():
+    core = build_core(2)
+    first, second = (make_ready(core) for _ in range(2))
+    assignments = core.scheduler.dispatch_selected([(2, second.order_id), (1, first.order_id)])
+    assert pairs(assignments) == [(second.order_id, 2), (first.order_id, 1)]
+    assert core.scheduler.queue.order_ids() == []
+    core.scheduler.ledger.check_consistency()
+
+
+def test_selected_dispatch_rejects_duplicate_or_nonqueued_choices_atomically():
+    core = build_core(2)
+    first = make_ready(core)
+    second = make_ready(core)
+    with pytest.raises(Exception, match='duplicate'):
+        core.scheduler.dispatch_selected([(1, first.order_id), (1, second.order_id)])
+    assert core.scheduler.queue.order_ids() == [first.order_id, second.order_id]
+    with pytest.raises(Exception, match='non-queued'):
+        core.scheduler.dispatch_selected([(1, 999)])
+    assert core.scheduler.queue.order_ids() == [first.order_id, second.order_id]
+
+
 # ----------------------------------------------------- simultaneous availability
 def test_simultaneous_availability_is_processed_as_a_batch_sorted_by_robot_id():
     core = build_core(3)

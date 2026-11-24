@@ -23,7 +23,7 @@ from __future__ import annotations
 from aifr.common.clock import Clock
 from aifr.common.errors import SchedulingInvariantError
 from aifr.common.events import EventBus
-from aifr.common.types import OrderId
+from aifr.common.types import OrderId, RobotId
 from aifr.fleet.events import RobotFaulted
 from aifr.fleet.registry import RobotRegistry
 from aifr.orders.events import OrderStatusChanged
@@ -56,15 +56,19 @@ class GlobalScheduler:
         bus.subscribe(RobotFaulted, self._on_robot_faulted)
 
     # ----------------------------------------------------------------- dispatch
-    def dispatch(self) -> list[Assignment]:
+    def dispatch(self, eligible_robot_ids=None) -> list[Assignment]:
         """Assign waiting orders to available robots. Returns the assignments made.
 
         All state changes of one call are committed before any subscriber sees an event.
         """
         now = self._clock.now()
         assignments: list[Assignment] = []
+        eligible = None if eligible_robot_ids is None else set(eligible_robot_ids)
         with self._bus.defer():
-            for robot_id in self._fleet.available_ids():        # ascending robot id
+            available = self._fleet.available_ids()
+            if eligible is not None:
+                available = [robot_id for robot_id in available if robot_id in eligible]
+            for robot_id in available:        # ascending robot id
                 if len(self.queue) == 0:
                     break
                 entry = self.queue.pop_head()                    # oldest READY order
@@ -76,6 +80,37 @@ class GlobalScheduler:
                 assignments.append(self.ledger.assign(entry.order_id, robot_id, now))
                 self._orders.mark_assigned(entry.order_id, robot_id)
                 self._fleet.assign(robot_id, entry.order_id)
+        return assignments
+
+    def dispatch_selected(self, pairs) -> list[Assignment]:
+        """Commit allocator choices while keeping this scheduler the lifecycle owner.
+
+        The whole batch is validated before any queue, order, fleet, or ledger
+        state is changed. ``pairs`` contains ``(robot_id, order_id)`` tuples.
+        """
+        selected = [(RobotId(int(robot_id)), OrderId(int(order_id)))
+                    for robot_id, order_id in pairs]
+        robot_ids = [robot_id for robot_id, _ in selected]
+        order_ids = [order_id for _, order_id in selected]
+        if len(set(robot_ids)) != len(robot_ids) or len(set(order_ids)) != len(order_ids):
+            raise SchedulingInvariantError("allocator returned duplicate robots or orders")
+        available = set(self._fleet.available_ids())
+        for robot_id, order_id in selected:
+            if robot_id not in available:
+                raise SchedulingInvariantError(f"allocator selected unavailable robot {robot_id}")
+            if order_id not in self.queue:
+                raise SchedulingInvariantError(f"allocator selected non-queued order {order_id}")
+            if self._orders.get(order_id).status is not OrderStatus.READY:
+                raise SchedulingInvariantError(f"allocator selected non-READY order {order_id}")
+        assignments: list[Assignment] = []
+        now = self._clock.now()
+        with self._bus.defer():
+            for robot_id, order_id in selected:
+                if not self.queue.remove(order_id):
+                    raise SchedulingInvariantError(f"order {order_id} left queue during commit")
+                assignments.append(self.ledger.assign(order_id, robot_id, now))
+                self._orders.mark_assigned(order_id, robot_id)
+                self._fleet.assign(robot_id, order_id)
         return assignments
 
     # ------------------------------------------------------------ event handlers

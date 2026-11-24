@@ -13,6 +13,9 @@ import math
 from pathlib import Path
 from typing import Callable, Sequence
 
+from aifr.battery import (BatteryConfig, BatteryManager, ChargingManager,
+                          audit_base_chargers)
+from aifr.battery.estimation import estimate_leg, estimate_mission
 from aifr.common.clock import SimClock
 from aifr.common.events import EventBus
 from aifr.environment.environment_mapper import EnvironmentMapper
@@ -31,6 +34,7 @@ from aifr.perception.ekf import PoseEKF
 from aifr.perception.lidar_adapter import LiDARObstacleTracker
 from aifr.perception.sensors import SensorSuite, lidar_scan
 from aifr.scheduling.scheduler import GlobalScheduler
+from aifr.scheduling.intelligent_allocator import IntelligentAllocator
 
 from tools.deadlock_manager import DeadlockManager, TrafficPolicy
 from tools.traffic_coordinator import (LaneMap, WaitForGraph, corridor_conflict,
@@ -117,6 +121,9 @@ class RobotRuntime:
     mission_best_distance: float = float('inf')
     mission_progress_tick: int = 0
     esc_mark: float = float('inf')   # remaining route length at the last stuck event
+    workload_seconds: float = 0.0
+    battery_alert: str = ''
+    aisle_wait_start_tick: int | None = None
 
     def __post_init__(self):
         self.ekf = PoseEKF(self.pose)
@@ -134,11 +141,19 @@ class DynamicObstacle:
 class Stage79Engine:
     def __init__(self, env, grid: OccupancyGrid, robot_count: int = 2,
                  pedestrians: AgentProvider | None = None, seed: int = 11,
-                 traffic_mode: str = "standard", safety_margin: float = 0.18):
+                 traffic_mode: str = "standard", safety_margin: float = 0.18,
+                 battery_enabled: bool = False,
+                 intelligent_allocation_enabled: bool = False,
+                 charging_enabled: bool = False,
+                 battery_config: BatteryConfig | None = None):
         if not 1 <= robot_count <= 4:
             raise ValueError('Demo supports 1–4 robots')
         if traffic_mode not in ("standard", "exclusive", "coordinated"):
             raise ValueError("traffic_mode must be standard, exclusive, or coordinated")
+        if intelligent_allocation_enabled and not battery_enabled:
+            raise ValueError("intelligent allocation requires battery feasibility to be enabled")
+        if charging_enabled and not battery_enabled:
+            raise ValueError("charging requires battery management to be enabled")
         self.traffic_mode = traffic_mode
         self.safety_margin = safety_margin
         self.deadlock_manager = DeadlockManager(TrafficPolicy(margin=safety_margin))
@@ -192,6 +207,42 @@ class Stage79Engine:
         if not self.pickups or not self.drops:
             raise ValueError('No validated pickup or delivery waypoints')
         self.robots = self._create_robots(robot_count)
+        self.battery_enabled = battery_enabled
+        self.intelligent_allocation_enabled = intelligent_allocation_enabled
+        self.battery_config = battery_config or BatteryConfig()
+        self.batteries = BatteryManager(self.robots, self.battery_config)
+        self.allocator = IntelligentAllocator()
+        self.charging_enabled = False
+        self.charging_blocker = "disabled by configuration"
+        self.charging_audit = {"enabled": False, "candidate_source": "existing validated robot base slots",
+                               "stations": [], "rejected": {},
+                               "pedestrian_routes_available": False,
+                               "pedestrian_clearance": "checked dynamically before docking; no static path graph exists",
+                               "maximum_simultaneous_robots": 0}
+        self.charging = ChargingManager(())
+        self._station_for_robot: dict[int, str] = {}
+        self._charger_radius = math.hypot(.20, .18) + safety_margin + .08
+        self._traffic_wait_ema_s = 0.0
+        stations, self.charging_audit = audit_base_chargers(
+            env, grid, self.checker,
+            [robot.base for robot in self.robots.values()],
+            safety_margin=safety_margin)
+        self.charging_audit['requested'] = charging_enabled
+        self.charging_audit['runtime_enabled'] = False
+        if charging_enabled:
+            if not stations:
+                self.charging_blocker = "no existing base slot passed static charger validation"
+            else:
+                self.charging = ChargingManager(stations)
+                self.charging_enabled = True
+                self.charging_audit['runtime_enabled'] = True
+                self.charging_blocker = "pedestrian routes are not in the reference environment; live docking clearance is enforced"
+                for rid, robot in self.robots.items():
+                    station = min(stations, key=lambda s: math.dist(
+                        (robot.base.x, robot.base.y), (s.pose.x, s.pose.y)))
+                    self._station_for_robot[rid] = station.station_id
+        self.allocation_log: list[dict] = []
+        self.battery_events: list[dict] = []
 
     def _create_robots(self, count):
         # Prefer actual valid Stage 3 spawn candidates, but allocate separate
@@ -237,6 +288,19 @@ class Stage79Engine:
             raise ValueError('New robot base is temporarily occupied; retry when clear')
         rid = int(self.fleet.add_robot())
         self.robots[rid] = candidate
+        if self.battery_enabled:
+            self.batteries.add_robot(rid)
+        if self.charging_enabled:
+            stations, self.charging_audit = audit_base_chargers(
+                self.env, self.grid, self.checker,
+                [robot.base for robot in self.robots.values()],
+                safety_margin=self.safety_margin)
+            for station in stations:
+                self.charging.register_station(station)
+            if stations:
+                self._station_for_robot[rid] = min(
+                    stations, key=lambda s: math.dist((candidate.base.x, candidate.base.y),
+                                                      (s.pose.x, s.pose.y))).station_id
         self._event('ROBOT_ADDED', robot_id=rid, x=candidate.pose.x, y=candidate.pose.y)
         return rid
 
@@ -466,7 +530,8 @@ class Stage79Engine:
         if not waiting:
             return
         active = [r for r in self.robots.values() if r.phase in
-                  ('TO_PICKUP', 'TO_CUSTOMER', 'LOADING', 'UNLOADING', 'RETURNING')]
+                  ('TO_PICKUP', 'TO_CUSTOMER', 'LOADING', 'UNLOADING',
+                   'RETURNING', 'RETURNING_TO_CHARGE')]
         if self.traffic_mode == "exclusive":
             if active:
                 return
@@ -482,13 +547,373 @@ class Stage79Engine:
             if self.traffic_mode == "coordinated" and active:
                 if any(math.dist((r.pose.x, r.pose.y), (o.pose.x, o.pose.y)) < 0.65 for o in active):
                     continue
+            if r.aisle_wait_start_tick is not None:
+                waited = (self.clock.tick - r.aisle_wait_start_tick) * 0.05
+                self._traffic_wait_ema_s = (waited if self._traffic_wait_ema_s == 0.0
+                                            else 0.8 * self._traffic_wait_ema_s + 0.2 * waited)
+                self._event('TRAFFIC_WAIT_COMPLETE', robot_id=r.robot_id,
+                            wait_s=round(waited, 3))
+                r.aisle_wait_start_tick = None
             self._launch(r)
+
+    def _best_leg_estimate(self, start, options):
+        best = None
+        for option in options:
+            result = estimate_leg(self.grid, start, (option.x, option.y))
+            if result is not None and (best is None or result[2] < best[2]):
+                best = result
+        return best
+
+    def _active_finish_estimate(self, robot):
+        """Estimate remaining service + A* path time for traffic queue costing."""
+        home = (robot.base.x, robot.base.y)
+        start = (robot.pose.x, robot.pose.y)
+        if robot.order_id is None:
+            result = estimate_leg(self.grid, start, home)
+            return 0.0 if result is None else result[2]
+        order = self.orders.get(robot.order_id)
+        phase = robot.phase
+        if phase in ('TO_PICKUP', 'WAITING_FOR_AISLE'):
+            candidates = []
+            for pickup in self.pickups.get(str(order.station_id), ()):
+                first = estimate_leg(self.grid, start, (pickup.x, pickup.y))
+                if first is None:
+                    continue
+                for drop in self.drops.get(str(order.table_id), ()):
+                    second = estimate_leg(self.grid, (pickup.x, pickup.y), (drop.x, drop.y))
+                    third = estimate_leg(self.grid, (drop.x, drop.y), home)
+                    if second is not None and third is not None:
+                        candidates.append(first[2] + second[2] + third[2] + 0.8)
+            return min(candidates, default=float('inf'))
+        if phase in ('LOADING', 'TO_CUSTOMER'):
+            candidates = []
+            for drop in self.drops.get(str(order.table_id), ()):
+                first = estimate_leg(self.grid, start, (drop.x, drop.y))
+                second = estimate_leg(self.grid, (drop.x, drop.y), home)
+                if first is not None and second is not None:
+                    dwell = robot.dwell * 0.05 if phase == 'LOADING' else 0.4
+                    candidates.append(first[2] + second[2] + dwell)
+            return min(candidates, default=float('inf'))
+        result = estimate_leg(self.grid, start, home)
+        travel = 0.0 if result is None else result[2]
+        dwell = robot.dwell * 0.05 if phase == 'UNLOADING' else 0.0
+        return travel + dwell
+
+    def _estimated_traffic_delay(self, order_rank: int) -> float:
+        if self.traffic_mode == 'coordinated':
+            return 0.0
+        active = [r for r in self.robots.values() if r.phase in
+                  ('TO_PICKUP', 'TO_CUSTOMER', 'LOADING', 'UNLOADING',
+                   'RETURNING', 'RETURNING_TO_CHARGE', 'WAITING_FOR_AISLE')]
+        if not active:
+            return self._traffic_wait_ema_s * (order_rank // 2)
+        # Standard/exclusive modes admit no new aisle traffic until existing
+        # missions clear. Use their remaining A* mission estimates, and the
+        # measured queue-wait EMA for later waves.
+        remaining = max((self._active_finish_estimate(r) for r in active), default=0.0)
+        limit = 1 if self.traffic_mode == 'exclusive' else 2
+        wave = max(0, order_rank + 1 - max(0, limit - len(active))) // limit
+        return max(remaining, self._traffic_wait_ema_s) * (1 + wave)
+
+    def _mission_estimate(self, robot, order, traffic_wait_s: float = 0.0):
+        start = (robot.pose.x, robot.pose.y)
+        home = (robot.base.x, robot.base.y)
+        stationary = 0.8 + max(0.0, traffic_wait_s)  # two 8-tick service dwells + queue time
+        candidates = []
+        for pickup in self.pickups.get(str(order.station_id), ()):
+            for drop in self.drops.get(str(order.table_id), ()):
+                estimate = estimate_mission(
+                    self.grid,
+                    ((start, (pickup.x, pickup.y)),
+                     ((pickup.x, pickup.y), (drop.x, drop.y)),
+                     ((drop.x, drop.y), home)),
+                    self.battery_config, stationary_time_s=stationary)
+                if estimate is not None:
+                    candidates.append(estimate)
+        if not candidates:
+            return None
+        return min(candidates, key=lambda e: (e.energy_wh, e.distance_m, e.travel_time_s))
+
+    def _remaining_mission_estimate(self, robot):
+        """Estimate current order remainder through its delivery and home return."""
+        start = (robot.pose.x, robot.pose.y)
+        home = (robot.base.x, robot.base.y)
+        if robot.order_id is None:
+            return estimate_mission(self.grid, ((start, home),), self.battery_config,
+                                    stationary_time_s=0.0)
+        order = self.orders.get(robot.order_id)
+        if robot.phase in ('TO_PICKUP', 'WAITING_FOR_AISLE'):
+            stationary = 0.8
+            legs = []
+            for pickup in self.pickups.get(str(order.station_id), ()):
+                for drop in self.drops.get(str(order.table_id), ()):
+                    legs.append(((start, (pickup.x, pickup.y)),
+                                 ((pickup.x, pickup.y), (drop.x, drop.y)),
+                                 ((drop.x, drop.y), home)))
+        elif robot.phase in ('LOADING', 'TO_CUSTOMER'):
+            stationary = robot.dwell * 0.05 + (0.4 if robot.phase == 'LOADING' else 0.0)
+            legs = [((start, (drop.x, drop.y)), ((drop.x, drop.y), home))
+                    for drop in self.drops.get(str(order.table_id), ())]
+        elif robot.phase == 'UNLOADING':
+            stationary = robot.dwell * 0.05
+            legs = [((start, home),)]
+        else:
+            stationary = 0.0
+            legs = [((start, home),)]
+        estimates = [estimate_mission(self.grid, item, self.battery_config,
+                                      stationary_time_s=stationary) for item in legs]
+        reachable = [item for item in estimates if item is not None]
+        return min(reachable, key=lambda item: item.energy_wh) if reachable else None
+
+    def _home_energy_estimate(self, robot):
+        leg = estimate_leg(self.grid, (robot.pose.x, robot.pose.y),
+                           (robot.base.x, robot.base.y))
+        if leg is None:
+            return None
+        energy = (self.battery_config.movement_wh_per_m * leg[0]
+                  + self.battery_config.rotation_wh_per_rad * leg[1])
+        return energy
+
+    def _pedestrian_clear_for_docking(self, robot, station):
+        radius = math.hypot(.2, .18) + self.safety_margin
+        now = self.clock.now() / 1e6
+        for pedestrian in self.pedestrians(now):
+            if math.dist((pedestrian.x, pedestrian.y),
+                         (station.pose.x, station.pose.y)) <= radius + pedestrian.radius:
+                return False
+        for obstacle in self.dynamic_obstacles.values():
+            if math.dist((obstacle.x, obstacle.y),
+                         (station.pose.x, station.pose.y)) <= radius + obstacle.radius:
+                return False
+        return self.checker.is_pose_free(station.pose.x, station.pose.y, station.pose.theta)
+
+    def _begin_charge(self, robot):
+        if not self.charging_enabled or robot.robot_id not in self._station_for_robot:
+            self.charging_blocker = (self.charging_blocker if not self.charging_enabled
+                                     else "robot has no validated base charger")
+            robot.battery_alert = "CHARGER_UNAVAILABLE"
+            self._event('CHARGER_UNAVAILABLE', robot_id=robot.robot_id)
+            return False
+        preferred = self._station_for_robot[robot.robot_id]
+        state = self.charging.request(robot.robot_id, preferred)
+        if state == 'WAITING_FOR_CHARGER':
+            robot.phase = 'WAITING_FOR_CHARGER'
+            robot.battery_alert = state
+            self._event(state, robot_id=robot.robot_id)
+            return False
+        station_id = self.charging.robot_station[robot.robot_id]
+        station = self.charging.stations[station_id]
+        if math.dist((robot.pose.x, robot.pose.y),
+                     (station.pose.x, station.pose.y)) <= .12:
+            if not self._pedestrian_clear_for_docking(robot, station):
+                self.charging.cancel(robot.robot_id)
+                robot.phase = 'WAITING_FOR_CHARGER'
+                robot.battery_alert = 'DOCKING_BLOCKED'
+                self._event('DOCKING_BLOCKED', robot_id=robot.robot_id,
+                            station_id=station_id)
+                return False
+            self.charging.mark_docked(robot.robot_id)
+            robot.phase = 'CHARGING'
+            robot.battery_alert = 'CHARGING'
+            self._event('CHARGING_STARTED', robot_id=robot.robot_id,
+                        station_id=station_id)
+            return True
+        robot.phase = 'RETURNING_TO_CHARGE'
+        self._set_route(robot, (station.pose.x, station.pose.y), 'CHARGE_RETURN')
+        self._event('RETURNING_TO_CHARGE', robot_id=robot.robot_id,
+                    station_id=station_id)
+        return True
+
+    def _battery_prepare(self):
+        if not self.battery_enabled:
+            return
+        target = self.battery_config.charge_target_fraction
+        for robot in self.robots.values():
+            if (robot.phase == 'WAITING_FOR_CHARGER'
+                    and self.charging.phase.get(robot.robot_id) == 'DOCKING'):
+                robot.phase = 'IDLE'
+                self._begin_charge(robot)
+            if robot.phase != 'IDLE':
+                continue
+            state = self.batteries.get(robot.robot_id)
+            if state.soc <= self.battery_config.low_soc_fraction and robot.battery_alert != 'LOW':
+                self._event('BATTERY_LOW', robot_id=robot.robot_id,
+                            soc_percent=round(state.soc_percent, 3))
+                robot.battery_alert = 'LOW'
+            if state.soc < target and self.charging_enabled:
+                if not self.charging.owns(robot.robot_id):
+                    self._begin_charge(robot)
+            elif state.soc < self.battery_config.dispatch_soc_fraction:
+                if robot.battery_alert != 'CHARGER_UNAVAILABLE':
+                    robot.battery_alert = 'CHARGER_UNAVAILABLE'
+                    self._event('CHARGER_UNAVAILABLE', robot_id=robot.robot_id,
+                                soc_percent=round(state.soc_percent, 3),
+                                reason=self.charging_blocker)
+
+    def _battery_emergency(self, robot):
+        if not self.battery_enabled or robot.phase in (
+                'IDLE', 'FAULT', 'CHARGING', 'DOCKING', 'WAITING_FOR_CHARGER',
+                'RETURNING_TO_CHARGE'):
+            return
+        state = self.batteries.get(robot.robot_id)
+        home_energy = self._home_energy_estimate(robot)
+        dynamic_threshold = self.battery_config.return_soc_fraction
+        if home_energy is not None:
+            dynamic_threshold = max(
+                dynamic_threshold,
+                self.batteries.return_soc_threshold(robot.robot_id, home_energy))
+        if state.soc > dynamic_threshold:
+            return
+        level = 'CRITICAL' if state.soc <= self.battery_config.critical_soc_fraction else 'RETURN'
+        if robot.battery_alert != level:
+            self._event('BATTERY_' + level, robot_id=robot.robot_id,
+                        soc_percent=round(state.soc_percent, 3))
+            robot.battery_alert = level
+        remainder = self._remaining_mission_estimate(robot)
+        protected = self.battery_config.protected_arrival_fraction * state.usable_capacity_wh
+        if remainder is not None and self.batteries.can_complete(
+                robot.robot_id, remainder.energy_wh + protected):
+            # The already assigned delivery remains safe including its return.
+            return
+        to_home = self._home_energy_estimate(robot)
+        if robot.order_id is not None:
+            order = self.orders.get(robot.order_id)
+            if order.status not in (OrderStatus.DELIVERED, OrderStatus.FAILED,
+                                    OrderStatus.CANCELLED):
+                order_id = int(robot.order_id)
+                self.orders.fail(order_id, reason='battery feasibility lost; robot returning safely')
+                self._event('BATTERY_ORDER_ABORTED', robot_id=robot.robot_id,
+                            order_id=order_id, reason='remaining delivery plus charger reserve infeasible')
+        if to_home is not None and self.batteries.can_complete(
+                robot.robot_id, to_home + protected):
+            robot.phase = 'RETURNING_TO_CHARGE'
+            self._set_route(robot, (robot.base.x, robot.base.y), 'LOW_BATTERY_RETURN')
+            self._event('BATTERY_SAFE_RETURN', robot_id=robot.robot_id)
+        else:
+            self._fail(robot, 'critical battery and no feasible return path')
+
+    def _battery_account_tick(self, robot, old_pose, new_pose, dt):
+        if not self.battery_enabled or robot.phase == 'FAULT':
+            return
+        distance = math.dist((old_pose.x, old_pose.y), (new_pose.x, new_pose.y))
+        angle = abs(math.atan2(math.sin(new_pose.theta - old_pose.theta),
+                               math.cos(new_pose.theta - old_pose.theta)))
+        now_s = (self.clock.now() + self.clock.dt_us) / 1e6
+        used = self.batteries.update_motion(robot.robot_id, distance, angle, dt, now_s)
+        if robot.order_id is not None and robot.phase not in ('IDLE', 'FAULT'):
+            robot.workload_seconds += dt
+        if self.charging_enabled and self.charging.phase.get(robot.robot_id) == 'CHARGING':
+            station_id = self.charging.robot_station[robot.robot_id]
+            station = self.charging.stations[station_id]
+            docked = math.dist((new_pose.x, new_pose.y),
+                               (station.pose.x, station.pose.y)) <= .12
+            stationary = distance <= 1e-9 and angle <= 1e-9
+            if docked and stationary and self._pedestrian_clear_for_docking(robot, station):
+                gained = self.batteries.charge(
+                    robot.robot_id, dt, docked=True, stationary=True)
+                if gained > 0 and self.batteries.get(robot.robot_id).soc >= self.battery_config.charge_target_fraction:
+                    self.charging.mark_complete(robot.robot_id)
+                    robot.phase = 'IDLE'
+                    robot.battery_alert = ''
+                    self._event('CHARGING_COMPLETE', robot_id=robot.robot_id,
+                                station_id=station_id,
+                                soc_percent=round(self.batteries.get(robot.robot_id).soc_percent, 3))
+            elif not docked:
+                self._event('CHARGER_DOCK_LOST', robot_id=robot.robot_id,
+                            station_id=station_id)
+                # Keep the pad reservation locked until an operator can confirm
+                # safe undocking/maintenance; never hand a displaced charger to
+                # another robot while its physical state is uncertain.
+                self._fail(robot, 'charging robot moved off its dock unexpectedly')
+        if self.charging.owns(robot.robot_id):
+            phase = self.charging.phase.get(robot.robot_id)
+            if phase == 'CHARGE_COMPLETE':
+                station = self.charging.stations[self.charging.robot_station[robot.robot_id]]
+                if math.dist((new_pose.x, new_pose.y),
+                             (station.pose.x, station.pose.y)) > self._charger_radius:
+                    self.charging.undock(robot.robot_id)
+                    self._event('CHARGER_UNDOCKED', robot_id=robot.robot_id,
+                                station_id=station.station_id)
+        self._battery_emergency(robot)
+        if self.batteries.get(robot.robot_id).remaining_wh <= 1e-9 and robot.phase not in (
+                'CHARGING', 'IDLE', 'FAULT'):
+            self.battery_events.append({"tick": self.clock.tick,
+                                        "robot_id": robot.robot_id,
+                                        "event": "DEPLETED"})
+            self._fail(robot, 'battery depleted')
+
+    def _pair_metrics(self, robot_ids, order_ids):
+        result = {}
+        config = self.battery_config
+        for order_rank, order_id in enumerate(order_ids):
+            order = self.orders.get(order_id)
+            for robot_id in robot_ids:
+                robot = self.robots[int(robot_id)]
+                delay = self._estimated_traffic_delay(order_rank)
+                estimate = self._mission_estimate(robot, order, delay)
+                key = (int(robot_id), int(order_id))
+                if estimate is None:
+                    result[key] = {"feasible": False, "reason": "one or more A* mission legs are unreachable"}
+                    continue
+                battery = self.batteries.get(robot_id)
+                protected_wh = config.protected_arrival_fraction * battery.usable_capacity_wh
+                enough = self.batteries.can_complete(robot_id, estimate.energy_wh + protected_wh)
+                soh_loss = self.batteries.predicted_soh_loss(robot_id, estimate.energy_wh)
+                health_margin = battery.soh - config.minimum_soh
+                healthy = soh_loss < health_margin - 1e-12 or soh_loss <= 1e-12
+                result[key] = {
+                    "feasible": bool(enough and healthy),
+                    "reason": "" if enough and healthy else
+                              ("mission plus protected reserve exceeds stored energy" if not enough
+                               else "predicted mission wear reaches minimum SOH"),
+                    "distance_m": estimate.distance_m,
+                    "time_s": estimate.travel_time_s + estimate.stationary_time_s,
+                    "battery_fraction": estimate.energy_wh / max(battery.remaining_wh, 1e-9),
+                    "workload": robot.workload_seconds,
+                    "degradation_fraction": soh_loss / max(health_margin, 1e-9),
+                    "mission_wh": estimate.energy_wh,
+                    "predicted_soh_loss": soh_loss,
+                    "traffic_wait_s": delay,
+                }
+        return result
 
     def _dispatch(self):
         if self.traffic_mode != "coordinated":
             if any(r.phase == 'WAITING_FOR_AISLE' for r in self.robots.values()):
                 return
-        for assignment in self.scheduler.dispatch():
+        if not self.battery_enabled:
+            assignments = self.scheduler.dispatch()
+        else:
+            available = [rid for rid in self.fleet.available_ids()
+                         if self.robots[int(rid)].phase == 'IDLE'
+                         and self.batteries.get(rid).soc >= self.battery_config.dispatch_soc_fraction
+                         and (not self.charging.owns(rid)
+                              or self.charging.phase.get(int(rid)) == 'CHARGE_COMPLETE')]
+            queued = self.scheduler.queue.order_ids()
+            batch_orders = queued[:max(4, 4 * len(available))]
+            metrics = self._pair_metrics(available, batch_orders)
+            if self.intelligent_allocation_enabled:
+                pairs = self.allocator.allocate(available, batch_orders, metrics)
+                self.allocation_log.extend({"tick": self.clock.tick, **entry}
+                                           for entry in self.allocator.last_decisions)
+                assignments = self.scheduler.dispatch_selected(pairs)
+            else:
+                # Battery-aware FCFS: scan oldest READY orders and choose the
+                # lowest-id feasible idle robot; normal feature-off FCFS stays
+                # exactly on the legacy scheduler path above.
+                pairs = []
+                used = set()
+                for order_id in batch_orders:
+                    robot_id = next((rid for rid in sorted(available)
+                                     if rid not in used and metrics.get((int(rid), int(order_id)), {})
+                                     .get("feasible", False)), None)
+                    if robot_id is not None:
+                        pairs.append((int(robot_id), int(order_id)))
+                        used.add(robot_id)
+                    if len(used) >= len(available):
+                        break
+                assignments = self.scheduler.dispatch_selected(pairs)
+        for assignment in assignments:
             rid = int(assignment.robot_id)
             r = self.robots[rid]
             order = self.orders.get(assignment.order_id)
@@ -497,15 +922,17 @@ class Stage79Engine:
             r.order_id = int(order.order_id)
             self._event('ASSIGNED', robot_id=rid, order_id=r.order_id)
             active = sum(o.phase in ('TO_PICKUP', 'TO_CUSTOMER', 'LOADING',
-                                     'UNLOADING', 'RETURNING') for o in self.robots.values())
+                                     'UNLOADING', 'RETURNING', 'RETURNING_TO_CHARGE')
+                          for o in self.robots.values())
             limit = 1 if self.traffic_mode == "exclusive" else (2 if self.traffic_mode == "standard" else len(self.robots))
             if active >= limit:
                 r.phase = 'WAITING_FOR_AISLE'
+                r.aisle_wait_start_tick = self.clock.tick
                 self._event('TRAFFIC_WAIT', robot_id=rid, order_id=r.order_id)
             else:
                 self._launch(r)
 
-    ACTIVE_PHASES = ('TO_PICKUP', 'TO_CUSTOMER', 'RETURNING')
+    ACTIVE_PHASES = ('TO_PICKUP', 'TO_CUSTOMER', 'RETURNING', 'RETURNING_TO_CHARGE')
     STUCK_TICKS = 80          # no measurable progress for 4 s => stuck
     CYCLE_TICKS = 24          # robots in a wait cycle must have stalled this long
     CORRIDOR_PATIENCE = 500   # ticks a robot waits at a lane entry before the claim is waived
@@ -653,7 +1080,7 @@ class Stage79Engine:
                                   p.radius + math.hypot(.2, .18) + .25))
         crowd = self.crowd if self.crowd is not None else self.pedestrians
         for cust in getattr(crowd, 'customers', {}).values():
-            if cust.phase in ('TO_CASH', 'TO_TABLE', 'TO_EXIT'):
+            if cust.phase in ('TO_CASH', 'TO_TABLE'):
                 for pt in cust.route[cust.route_index:cust.route_index + 12]:
                     avoid.append((pt[0], pt[1], cust.radius + math.hypot(.2, .18) + self.safety_margin + .2))
         return avoid
@@ -929,6 +1356,29 @@ class Stage79Engine:
             self.scheduler.complete_return(r.robot_id)
             self._event('RETURNED_TO_BASE',robot_id=r.robot_id,order_id=r.order_id)
             r.phase='IDLE';r.order_id=None
+            if (self.battery_enabled and self.charging_enabled
+                    and self.batteries.get(r.robot_id).soc < self.battery_config.charge_target_fraction
+                    and not self.charging.owns(r.robot_id)):
+                self._begin_charge(r)
+        elif r.phase == 'RETURNING_TO_CHARGE':
+            station_id = self.charging.robot_station.get(r.robot_id)
+            station = self.charging.stations.get(station_id) if station_id else None
+            if station is None or math.dist((r.pose.x, r.pose.y),
+                                            (station.pose.x, station.pose.y)) > .12:
+                self._fail(r, 'Charging dock arrival validation failed')
+                return
+            if not self._pedestrian_clear_for_docking(r, station):
+                self.charging.cancel(r.robot_id)
+                r.phase = 'WAITING_FOR_CHARGER'
+                self._event('DOCKING_BLOCKED', robot_id=r.robot_id,
+                            station_id=station_id)
+                return
+            self.charging.mark_docked(r.robot_id)
+            r.phase = 'CHARGING'
+            r.order_id = None
+            r.battery_alert = 'CHARGING'
+            self._event('CHARGING_STARTED', robot_id=r.robot_id,
+                        station_id=station_id)
 
     def _custody_valid(self, r):
         if r.order_id is None:
@@ -977,6 +1427,7 @@ class Stage79Engine:
 
     def step(self):
         if self.paused or self.estopped:return
+        self._battery_prepare()
         self._admit_waiting()
         self._dispatch()
         dt=.05;t=self.clock.now()/1e6
@@ -997,7 +1448,8 @@ class Stage79Engine:
                     r.mission_best_distance = distance
                     r.mission_progress_tick = self.clock.tick
                     r.recovery_budget = 0
-            if r.phase in ('IDLE','FAULT','LOADING','UNLOADING','WAITING_FOR_AISLE'):
+            if r.phase in ('IDLE','FAULT','LOADING','UNLOADING','WAITING_FOR_AISLE',
+                           'WAITING_FOR_CHARGER','DOCKING','CHARGING'):
                 proposals[rid]=(r.pose,0.,0.,False)
                 continue
             if r.navigation_state == 'BLOCKED':
@@ -1109,7 +1561,8 @@ class Stage79Engine:
                     break
             if r.phase=='FAULT':continue
             r.pose=nxt;r.linear=v;r.angular=w
-            if r.phase not in ('IDLE','LOADING','UNLOADING','WAITING_FOR_AISLE'):
+            if r.phase not in ('IDLE','LOADING','UNLOADING','WAITING_FOR_AISLE',
+                               'WAITING_FOR_CHARGER','DOCKING','CHARGING'):
                 r.nav_ticks+=1
                 od=r.sensor.odometry(v,w)
                 r.ekf.predict(od.linear,od.angular,dt)
@@ -1139,6 +1592,7 @@ class Stage79Engine:
                         r.phase='RETURNING'
                         self._event('DELIVERED_RETURN_PENDING',robot_id=rid,order_id=r.order_id)
                         self._set_route(r,(r.base.x,r.base.y),'RETURN')
+            self._battery_account_tick(r, previous_poses[rid], r.pose, dt)
             r.trace.append({'tick':self.clock.tick,'x':round(r.pose.x,5),'y':round(r.pose.y,5),
                             'theta':round(r.pose.theta,5),'phase':r.phase,
                             'order_id':r.order_id,'v':round(r.linear,5),'w':round(r.angular,5)})
@@ -1166,12 +1620,22 @@ class Stage79Engine:
         return self.report()
 
     def snapshot(self,compact=False):
+        battery_states = {int(item['robot_id']): item for item in self.batteries.telemetry()}
         result={'tick':self.clock.tick,'time_s':round(self.clock.now()/1e6,2),
                 'paused':self.paused,'estopped':self.estopped,'speed':self.speed,
                 'robots':[{'id':r.robot_id,'x':round(r.pose.x,3),'y':round(r.pose.y,3),
                            'theta':round(r.pose.theta,3),'phase':r.phase,
                            'order_id':r.order_id,'base':[r.base.x,r.base.y],
-                           'fleet_available':self.fleet.is_available(r.robot_id),
+                           'fleet_available':(self.fleet.is_available(r.robot_id)
+                                              and r.phase == 'IDLE'
+                                              and (not self.battery_enabled
+                                                   or battery_states[r.robot_id]['soc_percent']
+                                                   >= self.battery_config.dispatch_soc_fraction * 100)
+                                              and (not self.charging.owns(r.robot_id)
+                                                   or self.charging.phase.get(r.robot_id) == 'CHARGE_COMPLETE')),
+                           'battery':battery_states[r.robot_id] if self.battery_enabled else None,
+                           'charging_state':self.charging.phase.get(r.robot_id, 'OFF'),
+                           'workload_seconds':round(r.workload_seconds, 3),
                            'blocked_reason':r.blocked_reason,
                            'navigation_state':r.navigation_state,
                            'recovery_budget':r.recovery_budget,
@@ -1193,12 +1657,20 @@ class Stage79Engine:
                 'pedestrian_yield_events':self.deadlock_manager.customer_yields,
                 'pedestrian_reroutes':self.deadlock_manager.customer_reroutes,
                 'order_customer_links':len(self.order_customers),
+                'battery_enabled':self.battery_enabled,
+                'intelligent_allocation_enabled':self.intelligent_allocation_enabled,
+                'charging_enabled':self.charging_enabled,
+                'charging_blocker':self.charging_blocker,
+                'charging':self.charging.telemetry(),
                 'deadlock_stats':{'resolved':self.deadlocks_resolved,'retreats':self.retreats,
                                   'corridor_waits':self.corridor_waits,'stuck_events':self.stuck_events},
                 'failures':list(self.failures)}
         if not compact:
             result['recent_events']=self.events[-20:]
             result['yield_events']=self.yield_events
+            result['allocation_decisions']=self.allocation_log[-100:]
+            result['charger_validation']=self.charging_audit
+            result['battery_telemetry']=self.batteries.telemetry() if self.battery_enabled else []
         return result
 
     def report(self):
@@ -1238,6 +1710,24 @@ class Stage79Engine:
                            'blocked_reason':r.blocked_reason,
                            'lidar_detection_ticks':r.detected_ticks} for r in self.robots.values()],
                 'return_before_reassignment':return_ok,
+                'battery_management_enabled':self.battery_enabled,
+                'intelligent_allocation_enabled':self.intelligent_allocation_enabled,
+                'charging_enabled':self.charging_enabled,
+                'charging_blocker':self.charging_blocker,
+                'charger_validation':self.charging_audit,
+                'battery_config':{name:getattr(self.battery_config, name)
+                                  for name in self.battery_config.__dataclass_fields__},
+                'battery_telemetry':self.batteries.telemetry() if self.battery_enabled else [],
+                'allocation_decisions':self.allocation_log,
+                'unfinished_orders':[int(o.order_id) for o in orders
+                                     if o.status not in (OrderStatus.DELIVERED,
+                                                         OrderStatus.FAILED,
+                                                         OrderStatus.CANCELLED)],
+                'total_energy_discharged_wh':round(sum(
+                    s.cumulative_discharged_wh for s in self.batteries.states.values()), 6),
+                'total_energy_charged_wh':round(sum(
+                    s.charged_wh for s in self.batteries.states.values()), 6),
+                'mean_traffic_wait_s':round(self._traffic_wait_ema_s, 4),
                 'alns_routes':len(self.routes),
                 'alns_total_initial_cost':round(sum(r['initial_cost'] for r in self.routes),3),
                 'alns_total_optimized_cost':round(sum(r['optimized_cost'] for r in self.routes),3),

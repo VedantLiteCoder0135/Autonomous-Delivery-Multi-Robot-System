@@ -58,7 +58,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:left;b
 <button class="primary" type="submit">Add moving pedestrian</button></form>
 <p class="small">World coordinates in metres. Routes crossing occupied cells are rejected.</p></div>
 <div class="panel"><h2>Live metrics</h2><div class="statrow"><div class="stat"><span class="small">Simulation time</span><strong id="clock">0s</strong></div><div class="stat"><span class="small">Ready queue</span><strong id="queued">0</strong></div><div class="stat"><span class="small">Entrances</span><strong id="entrances">0/4</strong></div></div>
-<h3>Robot fleet</h3><table><thead><tr><th>Robot</th><th>Phase</th><th>Order</th><th>Available</th></tr></thead><tbody id="robots"></tbody></table>
+<h3>Robot fleet</h3><table><thead><tr><th>Robot</th><th>Phase</th><th>Order</th><th>Battery / SOH</th><th>Charge state</th><th>Available</th></tr></thead><tbody id="robots"></tbody></table>
 <h3>Recent events</h3><div class="events" id="events"></div></div>
 <div class="panel"><h2>Verification</h2><div class="small" id="verification">Waiting for simulation.</div></div></aside></div>
 <script>
@@ -83,7 +83,7 @@ function rows(id,items){el(id).innerHTML=items.join('')}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function refresh(){try{state=await request('/api/state');el('live').textContent=state.estopped?'EMERGENCY STOP':state.paused?'PAUSED':'RUNNING';el('clock').textContent=state.time_s.toFixed(1)+'s';el('queued').textContent=state.queue.length;el('entrances').textContent=(scene?scene.entrances.length:0)+'/4';el('speed').value=String(state.speed);
 rows('orders',state.orders.map(o=>`<tr><td>#${o.id}</td><td>${esc(o.table)}</td><td>${esc(o.station)}</td><td>${esc(o.status)}</td><td>${o.robot_id??'—'}</td></tr>`));
-rows('robots',state.robots.map(r=>`<tr><td>R${r.id}</td><td>${esc(r.phase)}</td><td>${r.order_id??'—'}</td><td>${r.fleet_available?'Yes':'No'}</td></tr>`));
+rows('robots',state.robots.map(r=>`<tr><td>R${r.id}</td><td>${esc(r.phase)}</td><td>${r.order_id??'—'}</td><td>${r.battery?r.battery.soc_percent.toFixed(1)+'% / '+(r.battery.soh*100).toFixed(1)+'%':'OFF'}</td><td>${esc(r.charging_state)}</td><td>${r.fleet_available?'Yes':'No'}</td></tr>`));
 el('events').innerHTML=state.recent_events.slice(-12).reverse().map(e=>`<div>[${e.tick}] ${esc(e.event)} ${e.robot_id?'R'+e.robot_id:''} ${e.order_id?'#'+e.order_id:''}</div>`).join('');
 let status=state.failures.length?'FAULT: '+state.failures.join('; '):'No simulation faults';el('verification').textContent=status+' · '+state.routes_count+' ALNS routes · '+state.yield_events+' traffic yield events';draw()}catch(e){el('live').textContent='DISCONNECTED';message(e.message,true)}}
 async function boot(){try{scene=await request('/api/map');for(const id of ['table','station']){const options=id==='table'?scene.tables_list:scene.stations_list;el(id).innerHTML=options.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}el('table').value='T11';el('station').value='SANDWICH';refresh();setInterval(refresh,500)}catch(e){message(e.message,true)}}boot();
@@ -91,13 +91,23 @@ async function boot(){try{scene=await request('/api/map');for(const id of ['tabl
 
 
 class Stage79App:
-    def __init__(self, project: Path, robot_count: int = 2):
+    def __init__(self, project: Path, robot_count: int = 2,
+                 battery_enabled: bool = False,
+                 intelligent_allocation_enabled: bool = False,
+                 charging_enabled: bool = False):
         self.project = project
         self.env, self.grid, _ = load_reference(project)
         self.robot_count = robot_count
+        self.battery_enabled = battery_enabled
+        self.intelligent_allocation_enabled = intelligent_allocation_enabled
+        self.charging_enabled = charging_enabled
         self.lock = threading.RLock()
         self.pedestrians = LivePedestrians(self.grid)
-        self.engine = Stage79Engine(self.env, self.grid, robot_count, pedestrians=self.pedestrians)
+        self.engine = Stage79Engine(
+            self.env, self.grid, robot_count, pedestrians=self.pedestrians,
+            battery_enabled=battery_enabled,
+            intelligent_allocation_enabled=intelligent_allocation_enabled,
+            charging_enabled=charging_enabled)
         self.engine.walkers = self.pedestrians
         self.closed = threading.Event()
 
@@ -156,7 +166,11 @@ class Stage79App:
             e = self.engine
             if action == 'reset':
                 self.pedestrians = LivePedestrians(self.grid)
-                self.engine = Stage79Engine(self.env, self.grid, self.robot_count, pedestrians=self.pedestrians)
+                self.engine = Stage79Engine(
+                    self.env, self.grid, self.robot_count, pedestrians=self.pedestrians,
+                    battery_enabled=self.battery_enabled,
+                    intelligent_allocation_enabled=self.intelligent_allocation_enabled,
+                    charging_enabled=self.charging_enabled)
                 self.engine.walkers = self.pedestrians
                 return {'message': 'Simulation reset. Existing orders cleared.'}
             if action == 'estop':
@@ -263,8 +277,16 @@ def main():
     parser = argparse.ArgumentParser(description='Stage 9 localhost Python dashboard')
     parser.add_argument('--robots', type=int, choices=(1, 2, 3, 4), default=1)
     parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--battery-enabled', action='store_true')
+    parser.add_argument('--intelligent-allocation', action='store_true')
+    parser.add_argument('--charging-enabled', action='store_true')
     args = parser.parse_args()
-    app = Stage79App(ROOT, args.robots)
+    if args.intelligent_allocation and not args.battery_enabled:
+        parser.error('--intelligent-allocation requires --battery-enabled')
+    if args.charging_enabled and not args.battery_enabled:
+        parser.error('--charging-enabled requires --battery-enabled')
+    app = Stage79App(ROOT, args.robots, args.battery_enabled,
+                     args.intelligent_allocation, args.charging_enabled)
     server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(app))
     worker = threading.Thread(target=app.tick_loop, daemon=True)
     worker.start()

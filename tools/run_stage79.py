@@ -13,6 +13,7 @@ for folder in (ROOT, ROOT / 'src'):
 
 from tools.stage79_engine import Stage79Engine, load_reference
 from tools.stage79_scenarios import v14_pedestrian
+from aifr.battery import BatteryConfig
 import math
 
 
@@ -23,6 +24,20 @@ def main() -> int:
                         metavar='TABLE:STATION')
     parser.add_argument('--max-ticks', type=int, default=6500)
     parser.add_argument('--project', type=Path, default=ROOT)
+    parser.add_argument('--battery-enabled', action='store_true',
+                        help='Enable simulated battery state and mission feasibility gating')
+    parser.add_argument('--intelligent-allocation', action='store_true',
+                        help='Use Hungarian matching (requires --battery-enabled)')
+    parser.add_argument('--charging-enabled', action='store_true',
+                        help='Use statically audited existing base slots as charger pads')
+    parser.add_argument('--capacity-wh', type=float, default=120.0)
+    parser.add_argument('--movement-wh-per-m', type=float, default=0.75)
+    parser.add_argument('--rotation-wh-per-rad', type=float, default=0.06)
+    parser.add_argument('--idle-power-w', type=float, default=12.0)
+    parser.add_argument('--charging-power-w', type=float, default=60.0)
+    parser.add_argument('--cycle-fade-per-efc', type=float, default=0.0005)
+    parser.add_argument('--calendar-fade-per-day', type=float, default=0.0)
+    parser.add_argument('--reserve-fraction', type=float, default=0.15)
     parser.add_argument('--pedestrian', action='store_true',
                         help='Run a verified gentle moving-pedestrian T11 demo (1 robot)')
     args = parser.parse_args()
@@ -30,9 +45,30 @@ def main() -> int:
         parser.error('--max-ticks must be positive')
     if args.pedestrian and args.robots != 1:
         parser.error('--pedestrian validation currently supports --robots 1')
+    if args.intelligent_allocation and not args.battery_enabled:
+        parser.error('--intelligent-allocation requires --battery-enabled')
+    if args.charging_enabled and not args.battery_enabled:
+        parser.error('--charging-enabled requires --battery-enabled')
+    try:
+        battery_config = BatteryConfig(
+            nominal_capacity_wh=args.capacity_wh,
+            movement_wh_per_m=args.movement_wh_per_m,
+            rotation_wh_per_rad=args.rotation_wh_per_rad,
+            idle_power_w=args.idle_power_w,
+            charging_power_w=args.charging_power_w,
+            cycle_fade_per_efc=args.cycle_fade_per_efc,
+            calendar_fade_per_day=args.calendar_fade_per_day,
+            reserve_fraction=args.reserve_fraction)
+    except ValueError as exc:
+        parser.error(str(exc))
     env, grid, _ = load_reference(args.project)
     provider = v14_pedestrian(grid) if args.pedestrian else None
-    engine = Stage79Engine(env, grid, robot_count=args.robots, pedestrians=provider)
+    engine = Stage79Engine(
+        env, grid, robot_count=args.robots, pedestrians=provider,
+        battery_enabled=args.battery_enabled,
+        intelligent_allocation_enabled=args.intelligent_allocation,
+        charging_enabled=args.charging_enabled,
+        battery_config=battery_config)
     for value in args.orders:
         if ':' not in value:
             parser.error(f'Expected TABLE:STATION, got {value!r}')
@@ -42,7 +78,11 @@ def main() -> int:
           f'{len(env.entrances)} wall-verified entrances', flush=True)
     report = engine.run(max_ticks=args.max_ticks)
     if args.pedestrian:
-        baseline = Stage79Engine(env, grid, robot_count=1)
+        baseline = Stage79Engine(env, grid, robot_count=1,
+                                 battery_enabled=args.battery_enabled,
+                                 intelligent_allocation_enabled=args.intelligent_allocation,
+                                 charging_enabled=args.charging_enabled,
+                                 battery_config=battery_config)
         for value in args.orders:
             table, station = value.split(':', 1)
             baseline.create_order(table, station)
@@ -85,6 +125,12 @@ def main() -> int:
         'alns_optimized_cost': report['alns_total_optimized_cost'],
         'minimum_robot_clearance_m': report['min_robot_clearance'],
         'minimum_pedestrian_clearance_m': report['min_pedestrian_clearance'],
+        'battery_management_enabled': report['battery_management_enabled'],
+        'intelligent_allocation_enabled': report['intelligent_allocation_enabled'],
+        'charging_enabled': report['charging_enabled'],
+        'energy_discharged_wh': report['total_energy_discharged_wh'],
+        'energy_charged_wh': report['total_energy_charged_wh'],
+        'unfinished_orders': report['unfinished_orders'],
         'pedestrian_comparison': report.get('pedestrian_comparison'),
         'failures': report['failures'],
     }, indent=2))
