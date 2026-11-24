@@ -21,12 +21,15 @@ for folder in (ROOT, ROOT/'src'):
 
 from tools.stage79_engine import Stage79Engine, load_reference
 from tools.customer_flow import CustomerFlow
+from tools.customer_pose_adapter import update_customer_pose, clear_stale_poses
+from tools.customer_delivery_adapter import CustomerDeliveryBridge
 from tools.runtime_timing import requested_steps
 
 COLLECTION = 'AIFR_LIVE_CUSTOMER_SIM'
 ENGINE = None
 FLOW = None
 ERR = ''
+DELIVERY_BRIDGE = None
 ROBOT_COLORS = ((.10,.7,.45,1),(.20,.45,.93,1),(.98,.68,.14,1),(.65,.30,.90,1))
 
 
@@ -39,7 +42,7 @@ OBSTACLE_LOCATIONS = {
 
 
 def reset_runtime():
-    global ENGINE, FLOW, ERR
+    global ENGINE, FLOW, ERR, DELIVERY_BRIDGE
     env, grid, _ = load_reference(ROOT)
     traffic_mode = getattr(bpy.context.scene, 'aifr_live_traffic_mode', 'coordinated') if hasattr(bpy.context, 'scene') else 'coordinated'
     # Forward reference means the same engine owns customer obstacle readings.
@@ -47,7 +50,21 @@ def reset_runtime():
                             pedestrians=lambda t: FLOW(t) if FLOW is not None else (),
                             traffic_mode=traffic_mode,
                             safety_margin=0.18)
-    FLOW = CustomerFlow(ENGINE)
+    FLOW = CustomerFlow(
+        ENGINE,
+        customer_seating_enabled=getattr(
+            bpy.context.scene, 'aifr_customer_seating_enabled', True))
+    DELIVERY_BRIDGE = CustomerDeliveryBridge()
+    if FLOW.seating is not None:
+        audit = FLOW.seating.audit()
+        if not audit['expected_count_matches'] or audit['unreachable_or_unmapped_chairs']:
+            print('AIFR customer seating audit warning:', audit)
+        # The environment JSON is the path-planning source; check open scene too.
+        missing = [seat_id for seat_id in FLOW.seating.seats
+                   if bpy.data.objects.get(seat_id) is None
+                   or bpy.data.objects.get(seat_id + '_SEAT') is None]
+        if missing:
+            print('AIFR chair scene mismatch; inspect geometry before demo:', missing)
     ERR = ''
     return ENGINE
 
@@ -70,7 +87,9 @@ def material(name, color):
 
 def marker(name, radius, color):
     obj=bpy.data.objects.get(name)
-    if obj:return obj
+    if obj and obj.type == 'MESH':return obj
+    if obj:
+        bpy.data.objects.remove(obj, do_unlink=True)
     bpy.ops.mesh.primitive_cylinder_add(vertices=16,radius=radius,depth=.24,location=(0,0,.26))
     obj=bpy.context.object
     obj.name=name
@@ -97,16 +116,25 @@ def render():
         obj['retreating']=r.retreating
         obj['hold']=r.hold_reason
         obj['yields']=r.yields
+    visible_customer_ids = set()
     for c in FLOW.customers.values():
-        if c.phase in ('QUEUED','LEFT'):continue
+        if c.phase in ('QUEUED','LEFT'):
+            continue
+        visible_customer_ids.add(c.customer_id)
         name=f'AIFR_SIM_CUSTOMER_{c.customer_id}'
         desired.add(name)
-        obj=marker(name,.15,(.95,.38,.25,1))
-        obj.location=(c.x,c.y,.32)
+        if FLOW.customer_seating_enabled:
+            obj=update_customer_pose(c, entity_collection())
+        else:
+            obj=marker(name,.15,(.95,.38,.25,1))
+            obj.location=(c.x,c.y,.32)
         obj['phase']=c.phase
         obj['table']=c.table
+        obj['seat_id']=c.seat_id or ''
         obj['order_id']=c.order_id or 0
         obj['customer_id']=c.customer_id
+    clear_stale_poses(visible_customer_ids if FLOW.customer_seating_enabled else set(),
+                      entity_collection())
     walkers = getattr(ENGINE.walkers, 'agents', {})
     for walker in walkers.values():
         person = walker.at(ENGINE.clock.now()/1e6)
@@ -135,11 +163,13 @@ def render():
 
 
 def one_step(*, draw=True):
-    # Update pedestrian motion first: the robot safety guard then sees the
-    # latest known position. Movement is kinematic (no full crowd physics).
-    FLOW.step(.05)
+    # Human observations precede robot safety checks. The existing scheduler
+    # owns delivery; the bridge reads its confirmed events after this tick.
+    FLOW.step(.05, now_real_s=time.monotonic())
     ENGINE.step()
-    if draw:render()
+    DELIVERY_BRIDGE.consume(ENGINE, FLOW, now_real_s=time.monotonic())
+    if draw:
+        render()
 
 
 def timer_update():
@@ -251,7 +281,7 @@ class AIFR_OT_add_customer(bpy.types.Operator):
             if entrance=='AUTO':
                 options=list(FLOW.entrance_points)
                 entrance=min(options,key=lambda key:sum(c.phase=='QUEUED' and c.entrance==key for c in FLOW.customers.values()))
-            pid=FLOW.add(entrance=entrance,table=s.aifr_live_table,
+            pid=FLOW.add(entrance=entrance,table=('AUTO' if FLOW.customer_seating_enabled else s.aifr_live_table),
                          station=s.aifr_live_station)
             ERR=''
             self.report({'INFO'},f'Customer {pid} entered via {entrance}. Payment auto-creates order.')
@@ -320,9 +350,10 @@ class AIFR_PT_native(bpy.types.Panel):
         for value in ('1','2','4','8','16'):
             op=speed_row.operator('aifr.native_speed',text=value+'x',depress=(s.aifr_live_speed==value))
             op.multiplier=value
-        box.label(text='Customer journey: Entrance > CASH > Table')
+        box.label(text='Customer: CASH > random table > chair > serve > exit')
         box.prop(s,'aifr_live_entrance')
-        box.prop(s,'aifr_live_table')
+        box.prop(s,'aifr_customer_seating_enabled',text='Chair seating (Reset to apply)')
+        box.prop(s,'aifr_live_table')  # Manual orders and legacy mode
         box.prop(s,'aifr_live_station')
         box.operator('aifr.native_add_customer',text='Add Customer',icon='OUTLINER_OB_ARMATURE')
         box.operator('aifr.native_control',text='Add Manual Order',icon='ADD').action='add_order'
@@ -334,12 +365,22 @@ class AIFR_PT_native(bpy.types.Panel):
         obs_row.operator('aifr.native_obstacle', text='Clear Obstacles', icon='TRASH').action = 'clear'
         box.separator()
         box.label(text='Up to 4 customers per table; entrances queue.')
+        if FLOW is not None and FLOW.seating is not None:
+            seats = FLOW.seating
+            occupied = sum(seat.status == 'OCCUPIED' for seat in seats.seats.values())
+            reserved = sum(seat.status == 'RESERVED' for seat in seats.seats.values())
+            box.label(text=f'Chairs: {occupied} seated / {reserved} reserved / {len(seats.seats)} total')
         box.label(text='Payment creates order automatically.')
-        box.label(text='Order READY when customer is seated.')
+        box.label(text='Order READY after sitting; eating begins after serving.')
         box.label(text='Customers / orders:')
         if FLOW is not None:
             for c in list(FLOW.customers.values())[-5:]:
-                box.label(text=f'C{c.customer_id} {c.phase}  {c.table}  order {c.order_id or "—"}')
+                meal = FLOW.meals.meals.get(c.customer_id)
+                remaining = (f" | eat {max(0., meal.deadline_real_s - time.monotonic()):.0f}s"
+                             if meal and meal.deadline_real_s is not None
+                             and c.phase in ('SEATED','EATING') else "")
+                box.label(text=(f'C{c.customer_id} {c.phase} {c.table} '
+                                f'{c.seat_id or "unassigned"} O{c.order_id or "—"}{remaining}')[:95])
         if ENGINE is not None:
             for r in ENGINE.robots.values():
                 box.label(text=f'R{r.robot_id}: {r.phase}  order {r.order_id or chr(8212)}')
@@ -379,7 +420,10 @@ def register():
     scene.aifr_live_fault=bpy.props.StringProperty(default='')
     scene.aifr_live_entrance=bpy.props.EnumProperty(name='Entrance',items=entrances)
     scene.aifr_live_station=bpy.props.EnumProperty(name='Food station',items=stations)
-    scene.aifr_live_table=bpy.props.EnumProperty(name='Customer table',items=tables)
+    scene.aifr_customer_seating_enabled=bpy.props.BoolProperty(
+        name='Enable customer chair seating', default=True,
+        description='Random tables, chair occupancy, serving timer and exit; Reset to apply')
+    scene.aifr_live_table=bpy.props.EnumProperty(name='Manual order table',items=tables)
     def _on_traffic_mode_change(self, context):
         global ENGINE
         if ENGINE is not None:

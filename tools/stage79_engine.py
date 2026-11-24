@@ -653,7 +653,7 @@ class Stage79Engine:
                                   p.radius + math.hypot(.2, .18) + .25))
         crowd = self.crowd if self.crowd is not None else self.pedestrians
         for cust in getattr(crowd, 'customers', {}).values():
-            if cust.phase in ('TO_CASH', 'TO_TABLE'):
+            if cust.phase in ('TO_CASH', 'TO_TABLE', 'TO_EXIT'):
                 for pt in cust.route[cust.route_index:cust.route_index + 12]:
                     avoid.append((pt[0], pt[1], cust.radius + math.hypot(.2, .18) + self.safety_margin + .2))
         return avoid

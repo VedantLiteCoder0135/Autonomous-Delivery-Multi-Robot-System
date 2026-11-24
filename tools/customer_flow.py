@@ -10,6 +10,11 @@ from dataclasses import dataclass, field
 import math
 from collections import deque
 from typing import Callable
+import random
+import time
+
+from tools.customer_seating import SeatRegistry
+from tools.customer_lifecycle import MealClock
 
 from aifr.navigation.astar import find_path
 from aifr.navigation.dwa import MovingObstacle
@@ -33,10 +38,19 @@ class Customer:
     blocked_ticks: int = 0
     yield_goal: tuple[float, float] | None = None   # passing bay while giving way
     hold_ticks: int = 0                             # waiting in the bay for the other to pass
+    seat_id: str | None = None
+    approach: tuple[float, float] | None = None
+    seat_heading: float = 0.0
+    vx: float = 0.0
+    vy: float = 0.0
+    transition_elapsed: float = 0.0
+    exit_target: tuple[float, float] | None = None
 
 
 class CustomerFlow:
-    def __init__(self, engine, *, walking_speed: float = .65, payment_seconds: float = 1.5):
+    def __init__(self, engine, *, walking_speed: float = .65, payment_seconds: float = 1.5,
+                 customer_seating_enabled: bool = False, seed: int = 23,
+                 now_real_s=None):
         self.engine = engine
         engine.crowd = self
         self.grid = engine.grid
@@ -53,6 +67,17 @@ class CustomerFlow:
         self.cash = self._nearest_free((cash.rect.min_x+cash.rect.max_x)/2,
                                        cash.rect.max_y, radius=1.6)
         self.reachable = self._reachable_from_cash()
+        self.customer_seating_enabled = customer_seating_enabled
+        self._wall_clock = now_real_s if now_real_s is not None else time.monotonic
+        self._rng = random.Random(seed)
+        self.meals = MealClock(rng=self._rng, clock=self._wall_clock)
+        self.seating = (SeatRegistry(self.env, self.grid, self.engine.drops,
+                                     self.reachable, rng=self._rng)
+                        if customer_seating_enabled else None)
+        if self.seating is not None:
+            # Preserve a bounded pre-seating waiting state at full capacity.
+            self.max_customers = self.seating.scene_chair_count + 16
+        self.completed: list[dict] = []
         self.entrance_points = {}
         for ent in self.env.entrances:
             self.entrance_points[ent.name] = self._near_entrance(ent.center_x, ent.center_y)
@@ -121,6 +146,119 @@ class CustomerFlow:
                 return (x,y)
         raise ValueError(f'No fourth collision-separated seat anchor available for {table}')
 
+    def _goal(self, c):
+        if c.phase == 'TO_CASH':
+            return self.cash
+        if c.phase == 'TO_EXIT':
+            return c.exit_target
+        return c.approach if self.customer_seating_enabled else c.seat
+
+    def _exit_point(self, c):
+        origin = (c.x, c.y)
+        options = sorted(self.entrance_points.values(),
+                         key=lambda pt: math.dist(pt, origin))
+        for pt in options:
+            if find_path(self.grid, origin, pt):
+                return pt
+        raise ValueError('No valid customer exit path')
+
+    def _reserve_waiting(self, c):
+        if c.seat_id is not None:
+            return True
+        seat = self.seating.reserve_random_seat(
+            c.customer_id, None if c.table == 'AUTO' else c.table)
+        if seat is None:
+            return False
+        c.seat_id = seat.seat_id
+        c.table = seat.table_id
+        c.seat = seat.position
+        c.approach = seat.approach
+        c.seat_heading = seat.heading
+        self.engine._event('CHAIR_RESERVED', customer_id=c.customer_id,
+                           seat_id=seat.seat_id, table=seat.table_id)
+        return True
+
+    def remove_customer(self, customer_id: int, *, reason='removed') -> bool:
+        """Release a reservation on removal without mutating the robot scheduler.
+
+        For already-created orders, only terminal/uncarried canceled or failed
+        orders can be removed. In-flight robot custody cannot be discarded.
+        """
+        if not self.customer_seating_enabled:
+            return False
+        c = self.customers.get(customer_id)
+        if c is None:
+            return False
+        if c.order_id is not None:
+            status = self.engine.orders.get(c.order_id).status.name
+            if status not in ('PREPARING','READY','CANCELLED','FAILED','DELIVERED'):
+                raise ValueError('Cannot remove customer while robot carries an active order')
+            if status in ('PREPARING','READY'):
+                self.engine.orders.cancel(c.order_id, reason=reason)
+        seat = self.seating.release(customer_id)
+        if seat is not None:
+            self.engine._event('CHAIR_RELEASED', customer_id=customer_id,
+                               seat_id=seat.seat_id, table=seat.table_id)
+        self.engine._event('CUSTOMER_REMOVED', customer_id=customer_id, reason=reason)
+        self.meals.remove(customer_id)
+        del self.customers[customer_id]
+        return True
+
+    def on_food_delivered(self, order_id: int, customer_id: int, now_real_s=None) -> bool:
+        """Accept only a matching physically DELIVERED order. Idempotent."""
+        if not self.customer_seating_enabled:
+            return False
+        c = self.customers.get(customer_id)
+        if c is None or c.order_id != order_id:
+            return False
+        if self.engine.order_customers.get(order_id) != customer_id:
+            return False
+        status = self.engine.orders.get(order_id).status
+        if getattr(status, 'name', None) != 'DELIVERED':
+            return False
+        changed = self.meals.delivered(order_id, customer_id, now_real_s=now_real_s)
+        if changed:
+            self.engine._event('CUSTOMER_FOOD_DELIVERED',
+                               order_id=order_id, customer_id=customer_id)
+        return changed
+
+    def on_food_served(self, order_id: int, customer_id: int, now_real_s=None) -> bool:
+        """Serving is the sole trigger for the 20–40 real-second eating clock."""
+        if not self.customer_seating_enabled:
+            return False
+        c = self.customers.get(customer_id)
+        if c is None or c.order_id != order_id:
+            return False
+        changed = self.meals.served(order_id, customer_id, now_real_s=now_real_s)
+        if changed:
+            m = self.meals.meals[customer_id]
+            self.engine._event('CUSTOMER_FOOD_SERVED', order_id=order_id,
+                               customer_id=customer_id, duration_s=m.eating_duration_s,
+                               real_served_at=m.served_at_real_s)
+        return changed
+
+    def _seat_transition(self, c, dt, sitting):
+        # The approach is a free floor cell; the chair centre intentionally
+        # lies in the static furniture geometry, so this last short motion is
+        # handled by the pose adapter rather than by furniture-blocked A*.
+        elapsed = min(.6, c.transition_elapsed + dt)
+        alpha = elapsed / .6
+        start, end = (c.approach, c.seat) if sitting else (c.seat, c.approach)
+        nx = start[0] + (end[0]-start[0])*alpha
+        ny = start[1] + (end[1]-start[1])*alpha
+        manager = self.engine.deadlock_manager
+        obstacles = tuple(self.engine.dynamic_obstacles.values())
+        if (not manager.pedestrian_step_safe((c.x, c.y), (nx, ny),
+                                             self.engine.robots, c.radius)
+            or not manager.customer_step_safe((c.x, c.y), (nx, ny),
+                                               self.customers, c.customer_id, c.radius)
+            or not manager.dynamic_obstacle_step_safe((c.x, c.y), (nx, ny),
+                                                       obstacles, c.radius)):
+            return False
+        c.transition_elapsed = elapsed
+        c.x, c.y = nx, ny
+        return alpha >= 1.0
+
     def _set_route(self,customer,destination):
         route=find_path(self.grid,(customer.x,customer.y),destination)
         if not route:raise ValueError('No pedestrian route through the cafeteria')
@@ -147,7 +285,35 @@ class CustomerFlow:
         self.engine._event('CUSTOMER_ENTERED',customer_id=c.customer_id,
                            entrance=c.entrance,table=c.table)
 
-    def add(self, *, entrance: str, table: str, station: str):
+    def _add_with_seats(self, entrance: str, table: str, station: str):
+        if len(self.customers) >= self.max_customers:
+            raise ValueError('Customer admission capacity reached')
+        table, station = table.upper(), station.upper()
+        if table != 'AUTO' and table not in self.engine.drops:
+            raise ValueError('Choose an existing delivery table or AUTO')
+        if station not in self.engine.pickups:
+            raise ValueError('Choose an existing food station')
+        if entrance not in self.entrance_points:
+            raise ValueError('Choose one of the four verified cafeteria entrances')
+        customer_id = self.next_id
+        x, y = self.entrance_points[entrance]
+        c = Customer(customer_id, entrance, table, station, x, y, phase='QUEUED')
+        # Reservation is made before admission and never silently changed.
+        self._reserve_waiting(c)
+        self.customers[customer_id] = c
+        self.next_id += 1
+        earlier = any(other.customer_id < customer_id and other.entrance == entrance
+                      and other.phase == 'QUEUED' for other in self.customers.values())
+        if c.seat_id and not earlier and self._entrance_available(entrance):
+            self._admit(c)
+        else:
+            self.engine._event('CUSTOMER_QUEUED', customer_id=customer_id,
+                               entrance=entrance, table=c.table)
+        return customer_id
+
+    def add(self, *, entrance: str, table: str = 'AUTO', station: str):
+        if self.customer_seating_enabled:
+            return self._add_with_seats(entrance, table, station)
         if len(self.customers)>=self.max_customers:
             raise ValueError(f'Maximum of {self.max_customers} active customers reached')
         table=table.upper();station=station.upper()
@@ -175,15 +341,21 @@ class CustomerFlow:
         return c.customer_id
 
     def __call__(self,time_s):
+        # Static inflated furniture already covers a seated avatar's chair and
+        # table-facing legs. Adding a *second* pedestrian avoidance circle at
+        # that same chair incorrectly blocks validated delivery waypoints.
+        # Seated people remain in get_customer_observations(), while walking,
+        # sitting down and standing up still receive dynamic collision guards.
+        seated_static = ('SEATED', 'EATING') if self.customer_seating_enabled else ()
         return tuple(MovingObstacle(c.x,c.y,c.radius) for c in self.customers.values()
-                     if c.phase not in ('QUEUED','LEFT'))
+                     if c.phase not in ('QUEUED','LEFT') + seated_static)
 
     def _walk(self,c,dt):
         manager=self.engine.deadlock_manager
         if c.hold_ticks > 0:
             c.hold_ticks -= 1
             if c.hold_ticks == 0:
-                self._set_route(c, self.cash if c.phase == 'TO_CASH' else c.seat)
+                self._set_route(c, self._goal(c))
             return False
         remaining=self.walking_speed*dt
         blocked=False
@@ -208,7 +380,7 @@ class CustomerFlow:
                 # Two walkers meeting head-on: the later arrival (higher id) gives way,
                 # the other holds its ground. Seated people never move, so always avoid them.
                 holds_ground = (walker is not None and not robot_hit
-                                and walker.phase in ('TO_CASH','PAYING','TO_TABLE')
+                                and walker.phase in ('TO_CASH','PAYING','TO_TABLE','TO_EXIT')
                                 and walker.customer_id > c.customer_id)
                 break
             c.x,c.y=nx,ny
@@ -218,7 +390,7 @@ class CustomerFlow:
         if blocked:
             c.blocked_ticks=manager.record_block(c.customer_id)
             if c.blocked_ticks % manager.policy.pedestrian_replan_after_ticks == 0:
-                goal=self.cash if c.phase=='TO_CASH' else c.seat
+                goal=self._goal(c)
                 dyn_obs = tuple(getattr(self.engine, 'dynamic_obstacles', {}).values())
                 new_path=manager.reroute_around_agents(
                     self.grid,(c.x,c.y),goal,self.engine.robots,
@@ -277,7 +449,90 @@ class CustomerFlow:
             return False
         return done
 
-    def step(self,dt=.05):
+    def _seating_step(self, dt, now_real_s):
+        # No new queue implementation: reserved customers retain the original
+        # entrance FIFO admission, and seatless customers wait non-physically.
+        for c in list(self.customers.values()):
+            if c.order_id is not None and self.engine.orders.get(c.order_id).status.name in (
+                    'CANCELLED', 'FAILED'):
+                self.remove_customer(c.customer_id, reason='order no longer deliverable')
+                continue
+            if c.phase in ('QUEUED', 'LEFT'):
+                continue
+            if c.phase == 'TO_CASH':
+                if self._walk(c, dt):
+                    c.phase = 'PAYING'
+                    self.engine._event('CUSTOMER_AT_CASH', customer_id=c.customer_id)
+            elif c.phase == 'PAYING':
+                c.cash_wait += dt
+                if c.cash_wait >= self.payment_seconds:
+                    c.order_id = self.engine.create_order(
+                        c.table, c.station, ready=False, customer_id=c.customer_id)
+                    self.meals.track(c.customer_id, c.order_id)
+                    self.engine._event('BILL_PAID', customer_id=c.customer_id,
+                                       order_id=c.order_id)
+                    self._set_route(c, c.approach)
+                    c.phase = 'TO_TABLE'
+            elif c.phase == 'TO_TABLE':
+                if self._walk(c, dt):
+                    c.transition_elapsed = 0.0
+                    c.phase = 'SITTING'
+            elif c.phase == 'SITTING':
+                if self._seat_transition(c, dt, True):
+                    self.seating.occupy(c.customer_id)
+                    c.phase = 'SEATED'
+                    self.engine.ready_order(c.order_id, customer_id=c.customer_id)
+                    self.engine._event('CUSTOMER_SEATED', customer_id=c.customer_id,
+                                       order_id=c.order_id, table=c.table, seat_id=c.seat_id)
+            elif c.phase in ('SEATED', 'EATING'):
+                meal = self.meals.meals.get(c.customer_id)
+                if meal is not None and meal.served:
+                    if c.phase == 'SEATED':
+                        c.phase = 'EATING'
+                    if meal.expired(now_real_s):
+                        c.phase = 'STANDING'
+                        c.transition_elapsed = 0.0
+                        self.engine._event('CUSTOMER_FINISHED_EATING',
+                                           customer_id=c.customer_id,
+                                           order_id=c.order_id,
+                                           elapsed_real_s=now_real_s - meal.served_at_real_s,
+                                           actual_trigger_at_real_s=now_real_s)
+            elif c.phase == 'STANDING':
+                if self._seat_transition(c, dt, False):
+                    c.exit_target = self._exit_point(c)
+                    self._set_route(c, c.exit_target)
+                    seat = self.seating.release(c.customer_id)
+                    self.engine._event('CHAIR_RELEASED', customer_id=c.customer_id,
+                                       seat_id=seat.seat_id, table=seat.table_id)
+                    c.phase = 'TO_EXIT'
+            elif c.phase == 'TO_EXIT':
+                if self._walk(c, dt):
+                    c.phase = 'LEFT'
+                    self.completed.append({
+                        'customer_id': c.customer_id, 'table': c.table,
+                        'seat_id': c.seat_id, 'order_id': c.order_id,
+                        'eating_duration_s': self.meals.meals[c.customer_id].eating_duration_s
+                    })
+                    self.engine._event('CUSTOMER_EXITED', customer_id=c.customer_id,
+                                       order_id=c.order_id)
+                    self.meals.remove(c.customer_id)
+                    del self.customers[c.customer_id]
+        for waiting in sorted((c for c in self.customers.values()
+                               if c.phase == 'QUEUED'), key=lambda c: c.customer_id):
+            if self._reserve_waiting(waiting) and self._entrance_available(waiting.entrance):
+                self._admit(waiting)
+                break
+
+    def step(self,dt=.05, now_real_s=None):
+        if self.customer_seating_enabled:
+            if now_real_s is None:
+                now_real_s = self._wall_clock()
+            before = {id: (c.x, c.y) for id, c in self.customers.items()}
+            self._seating_step(dt, now_real_s)
+            for id, c in self.customers.items():
+                old_x, old_y = before.get(id, (c.x, c.y))
+                c.vx, c.vy = ((c.x-old_x)/dt, (c.y-old_y)/dt) if dt > 0 else (0.0,0.0)
+            return
         # Admit at most one queued customer per entrance, in FIFO order.
         # Existing customers move first; admissions cannot overlap them.
         for c in self.customers.values():
@@ -309,7 +564,22 @@ class CustomerFlow:
                 self._admit(waiting)
                 break
 
+    def get_customer_observations(self) -> list[dict]:
+        """Member 2 input: measured/current poses only, no future destinations.
+
+        Stable IDs and simulation timestamps; never reveal a customer's seat
+        target or eating deadline to trajectory prediction.
+        """
+        now_sim_s = self.engine.clock.now()/1e6
+        return [{'id': c.customer_id, 'x': c.x, 'y': c.y,
+                 'vx': c.vx, 'vy': c.vy, 'radius': c.radius,
+                 'phase': c.phase, 'timestamp_s': now_sim_s}
+                for c in self.customers.values()
+                if c.phase not in ('QUEUED', 'LEFT')]
+
     def snapshot(self):
         return [{'id':c.customer_id,'x':round(c.x,3),'y':round(c.y,3),
                  'phase':c.phase,'entrance':c.entrance,'table':c.table,
-                 'order_id':c.order_id,'radius':c.radius} for c in self.customers.values()]
+                 'order_id':c.order_id,'radius':c.radius,
+                 'seat_id':c.seat_id, 'seat_heading':round(c.seat_heading,4)}
+                for c in self.customers.values()]
