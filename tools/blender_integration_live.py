@@ -14,7 +14,7 @@ import sys
 
 import bpy
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path.home() / "Desktop/Projects/Autonomous-Delivery-Multi-Robot-System"
 for folder in (ROOT, ROOT/'src'):
     if str(folder) not in sys.path:
         sys.path.insert(0,str(folder))

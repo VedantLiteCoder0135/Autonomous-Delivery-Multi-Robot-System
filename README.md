@@ -145,7 +145,7 @@ For reproduction details, see [`STAGES_7_TO_9_VERIFICATION.md`](STAGES_7_TO_9_VE
 Run from the Git-connected repository root:
 
 ```bash
-/Applications/Blender.app/Contents/MacOS/Blender "$(pwd)/AIFR_Cafeteria_V14_Recovered.blend" --python "$(pwd)/tools/blender_integration_live.py"
+/Applications/Blender.app/Contents/MacOS/Blender "$(pwd)/AIFR_Cafeteria_V13_Recovered.blend" --python "$(pwd)/tools/blender_integration_live.py"
 ```
 
 Open **N → AIFR** in the 3D viewport. Add customers via one of four doors,
