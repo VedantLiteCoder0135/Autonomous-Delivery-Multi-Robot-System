@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Sequence
+from typing import Callable, Sequence
 
 from .dwa import DWAConfig, MovingObstacle
 from .kinematics import Pose, advance, normalize
@@ -156,7 +156,8 @@ class RouteDWA:
         return True
 
     def plan(self, pose: Pose, current_v: float, current_w: float,
-             obstacles: Sequence[MovingObstacle] = ()) -> RouteCommand:
+             obstacles: Sequence[MovingObstacle] = (), *,
+             command_allowed: Callable[[float, float], bool] | None = None) -> RouteCommand:
         if not self.path:
             return RouteCommand(0., 0., False, reason='No global route')
         if not self.grid.is_free(*self.grid.world_to_grid(pose.x, pose.y)):
@@ -203,6 +204,8 @@ class RouteDWA:
         best = None
         for v in vs:
             for w in ws:
+                if command_allowed is not None and not command_allowed(v, w):
+                    continue
                 admissible, gap = self._admissible(pose, v, w, obstacles)
                 if not admissible:
                     continue
@@ -221,7 +224,8 @@ class RouteDWA:
             fallback=[]
             brake_v = max(vlow, min(vhigh, 0.))
             for w in ws:
-                if self._brake_safe(pose, brake_v, w, obstacles):
+                if ((command_allowed is None or command_allowed(brake_v, w))
+                        and self._brake_safe(pose, brake_v, w, obstacles)):
                     fallback.append((abs(w-desired_w),abs(w),w))
             if fallback:
                 return RouteCommand(brake_v,min(fallback)[2],True,reason='Controlled braking')

@@ -287,6 +287,27 @@ def test_head_on_in_single_lane_aisle_resolves_by_priority_yield(world):
     assert_delivered(engine, 2)
 
 
+def test_main_course_pickup_allows_only_one_robot_into_approach(world):
+    engine, _ = build(world, 4)
+    for table in ('T03', 'T08', 'T11', 'T14'):
+        engine.create_order(table, 'MAIN_COURSE')
+    engine._dispatch()
+    assert engine.robots[1].phase == 'TO_PICKUP'
+    assert all(robot.phase == 'WAITING_FOR_AISLE' and robot.pose == robot.base
+               for robot in tuple(engine.robots.values())[1:])
+
+    pickup = engine.pickups['MAIN_COURSE'][0]
+    serving = engine.robots[1]
+    serving.phase = 'TO_CUSTOMER'
+    place(engine, 1, pickup.x, pickup.y, 0.)
+    engine._admit_waiting()
+    assert engine.robots[2].phase == 'WAITING_FOR_AISLE'
+    serving.pose = serving.base
+    engine._admit_waiting()
+    assert engine.robots[2].phase == 'TO_PICKUP'
+    assert engine.robots[3].phase == 'WAITING_FOR_AISLE'
+
+
 @slow
 def test_left_counter_queue_four_robots_one_station(world):
     """The left-hand MAIN_COURSE counter has one pickup point; four robots converge on it."""

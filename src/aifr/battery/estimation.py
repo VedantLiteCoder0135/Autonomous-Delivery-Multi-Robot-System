@@ -51,14 +51,15 @@ def estimate_leg(grid, start, goal, *, max_speed_mps: float = 0.35,
 
 def estimate_mission(grid, legs, config: BatteryConfig, *, stationary_time_s: float,
                      max_speed_mps: float = 0.35, max_accel_mps2: float = 0.8,
-                     max_angular_rps: float = 1.5) -> MissionEstimate | None:
+                     max_angular_rps: float = 1.5,
+                     leg_estimator=estimate_leg) -> MissionEstimate | None:
     """Estimate all legs; ``legs`` must include the final charger/base return leg."""
     if not math.isfinite(stationary_time_s) or stationary_time_s < 0:
         raise ValueError("stationary time must be finite and nonnegative")
     distance = rotation = travel_time = 0.0
     paths = []
     for start, goal in legs:
-        metrics = estimate_leg(grid, start, goal, max_speed_mps=max_speed_mps,
+        metrics = leg_estimator(grid, start, goal, max_speed_mps=max_speed_mps,
                                max_accel_mps2=max_accel_mps2,
                                max_angular_rps=max_angular_rps)
         if metrics is None:

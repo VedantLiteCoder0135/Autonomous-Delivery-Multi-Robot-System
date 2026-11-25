@@ -7,7 +7,8 @@ perception/pose. Centralized next-step reservations prevent inter-robot overlap.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import lru_cache
 import json
 import math
 from pathlib import Path
@@ -160,6 +161,22 @@ class Stage79Engine:
         self.dynamic_obstacles: dict[str, DynamicObstacle] = {}
         self.dynamic_replans = 0
         self.env, self.grid = env, grid
+
+        @lru_cache(maxsize=2048)
+        def static_battery_leg(start_cell, goal_cell, **limits):
+            # A* uses cell centres, so fractional pose changes within a cell
+            # have no effect on its path or the resulting energy estimate.
+            return estimate_leg(grid, grid.grid_to_world(*start_cell),
+                                grid.grid_to_world(*goal_cell), **limits)
+
+        def battery_leg(_grid, start, goal, **limits):
+            start_cell = grid.world_to_grid(*start)
+            goal_cell = grid.world_to_grid(*goal)
+            if not grid.is_free(*start_cell) or not grid.is_free(*goal_cell):
+                return None
+            return static_battery_leg(start_cell, goal_cell, **limits)
+
+        self._battery_leg = battery_leg
         self.lanes = _lane_map(grid)
         self.wait_graph = WaitForGraph()
         self.robot_envelope = 2 * math.hypot(.2, .18) + safety_margin + .04  # = DWA's gap to a robot
@@ -210,6 +227,8 @@ class Stage79Engine:
         self.battery_enabled = battery_enabled
         self.intelligent_allocation_enabled = intelligent_allocation_enabled
         self.battery_config = battery_config or BatteryConfig()
+        self._default_battery_config = self.battery_config
+        self.battery_consumption_multiplier = 1.0
         self.batteries = BatteryManager(self.robots, self.battery_config)
         self.allocator = IntelligentAllocator()
         self.charging_enabled = False
@@ -243,6 +262,17 @@ class Stage79Engine:
                     self._station_for_robot[rid] = station.station_id
         self.allocation_log: list[dict] = []
         self.battery_events: list[dict] = []
+
+    def set_battery_consumption_multiplier(self, multiplier: float) -> None:
+        if not math.isfinite(multiplier) or multiplier <= 0:
+            raise ValueError("battery consumption multiplier must be positive and finite")
+        defaults = self._default_battery_config
+        config = replace(defaults,
+                         movement_wh_per_m=defaults.movement_wh_per_m * multiplier,
+                         rotation_wh_per_rad=defaults.rotation_wh_per_rad * multiplier,
+                         idle_power_w=defaults.idle_power_w * multiplier)
+        self.battery_config = self.batteries.config = config
+        self.battery_consumption_multiplier = multiplier
 
     def _create_robots(self, count):
         # Prefer actual valid Stage 3 spawn candidates, but allocate separate
@@ -525,6 +555,23 @@ class Stage79Engine:
         self._set_route(r, pickup, 'PICKUP')
         self._event('TRAFFIC_ADMITTED', robot_id=r.robot_id, order_id=r.order_id)
 
+    def _main_course_pickup_busy(self, robot):
+        order = self.orders.get(robot.order_id)
+        if str(order.station_id) != 'MAIN_COURSE':
+            return False
+        pickup = self.pickups['MAIN_COURSE'][0]
+        for other in self.robots.values():
+            if other is robot:
+                continue
+            # The counter sits in a narrow pocket. Leave room for the robot
+            # already there to turn and clear the approach with its load.
+            if math.dist((other.pose.x, other.pose.y), (pickup.x, pickup.y)) < 1.5:
+                return True
+            if (other.phase in ('TO_PICKUP', 'LOADING') and other.order_id is not None
+                    and str(self.orders.get(other.order_id).station_id) == 'MAIN_COURSE'):
+                return True
+        return False
+
     def _admit_waiting(self):
         waiting = [r for r in self.robots.values() if r.phase == 'WAITING_FOR_AISLE']
         if not waiting:
@@ -544,6 +591,8 @@ class Stage79Engine:
             limit = len(self.robots)
 
         for r in sorted(waiting, key=lambda x: x.robot_id)[:limit]:
+            if self._main_course_pickup_busy(r):
+                continue
             if self.traffic_mode == "coordinated" and active:
                 if any(math.dist((r.pose.x, r.pose.y), (o.pose.x, o.pose.y)) < 0.65 for o in active):
                     continue
@@ -627,7 +676,8 @@ class Stage79Engine:
                     ((start, (pickup.x, pickup.y)),
                      ((pickup.x, pickup.y), (drop.x, drop.y)),
                      ((drop.x, drop.y), home)),
-                    self.battery_config, stationary_time_s=stationary)
+                    self.battery_config, stationary_time_s=stationary,
+                    leg_estimator=self._battery_leg)
                 if estimate is not None:
                     candidates.append(estimate)
         if not candidates:
@@ -640,7 +690,7 @@ class Stage79Engine:
         home = (robot.base.x, robot.base.y)
         if robot.order_id is None:
             return estimate_mission(self.grid, ((start, home),), self.battery_config,
-                                    stationary_time_s=0.0)
+                                    stationary_time_s=0.0, leg_estimator=self._battery_leg)
         order = self.orders.get(robot.order_id)
         if robot.phase in ('TO_PICKUP', 'WAITING_FOR_AISLE'):
             stationary = 0.8
@@ -661,13 +711,13 @@ class Stage79Engine:
             stationary = 0.0
             legs = [((start, home),)]
         estimates = [estimate_mission(self.grid, item, self.battery_config,
-                                      stationary_time_s=stationary) for item in legs]
+                                      stationary_time_s=stationary,
+                                      leg_estimator=self._battery_leg) for item in legs]
         reachable = [item for item in estimates if item is not None]
         return min(reachable, key=lambda item: item.energy_wh) if reachable else None
 
-    def _home_energy_estimate(self, robot):
-        leg = estimate_leg(self.grid, (robot.pose.x, robot.pose.y),
-                           (robot.base.x, robot.base.y))
+    def _travel_energy_estimate(self, robot, destination):
+        leg = self._battery_leg(self.grid, (robot.pose.x, robot.pose.y), destination)
         if leg is None:
             return None
         energy = (self.battery_config.movement_wh_per_m * leg[0]
@@ -685,7 +735,11 @@ class Stage79Engine:
             if math.dist((obstacle.x, obstacle.y),
                          (station.pose.x, station.pose.y)) <= radius + obstacle.radius:
                 return False
-        return self.checker.is_pose_free(station.pose.x, station.pose.y, station.pose.theta)
+        if any(other is not robot and math.dist(
+                (other.pose.x, other.pose.y), (station.pose.x, station.pose.y)) <= self.robot_envelope
+                for other in self.robots.values()):
+            return False
+        return self.checker.is_pose_free(robot.pose.x, robot.pose.y, robot.pose.theta)
 
     def _begin_charge(self, robot):
         if not self.charging_enabled or robot.robot_id not in self._station_for_robot:
@@ -696,6 +750,9 @@ class Stage79Engine:
             return False
         preferred = self._station_for_robot[robot.robot_id]
         state = self.charging.request(robot.robot_id, preferred)
+        if state == 'CHARGER_FAILED':
+            self._fail(robot, 'Reserved charger is offline')
+            return False
         if state == 'WAITING_FOR_CHARGER':
             robot.phase = 'WAITING_FOR_CHARGER'
             robot.battery_alert = state
@@ -706,11 +763,11 @@ class Stage79Engine:
         if math.dist((robot.pose.x, robot.pose.y),
                      (station.pose.x, station.pose.y)) <= .12:
             if not self._pedestrian_clear_for_docking(robot, station):
-                self.charging.cancel(robot.robot_id)
                 robot.phase = 'WAITING_FOR_CHARGER'
-                robot.battery_alert = 'DOCKING_BLOCKED'
-                self._event('DOCKING_BLOCKED', robot_id=robot.robot_id,
-                            station_id=station_id)
+                if robot.battery_alert != 'DOCKING_BLOCKED':
+                    robot.battery_alert = 'DOCKING_BLOCKED'
+                    self._event('DOCKING_BLOCKED', robot_id=robot.robot_id,
+                                station_id=station_id)
                 return False
             self.charging.mark_docked(robot.robot_id)
             robot.phase = 'CHARGING'
@@ -718,8 +775,14 @@ class Stage79Engine:
             self._event('CHARGING_STARTED', robot_id=robot.robot_id,
                         station_id=station_id)
             return True
+        destination = (station.pose.x, station.pose.y)
+        energy = self._travel_energy_estimate(robot, destination)
+        if energy is None or energy > self.batteries.get(robot.robot_id).remaining_wh:
+            self.charging.cancel(robot.robot_id)
+            self._fail(robot, 'No reachable charger within remaining battery energy')
+            return False
         robot.phase = 'RETURNING_TO_CHARGE'
-        self._set_route(robot, (station.pose.x, station.pose.y), 'CHARGE_RETURN')
+        self._set_route(robot, destination, 'CHARGE_RETURN')
         self._event('RETURNING_TO_CHARGE', robot_id=robot.robot_id,
                     station_id=station_id)
         return True
@@ -727,7 +790,7 @@ class Stage79Engine:
     def _battery_prepare(self):
         if not self.battery_enabled:
             return
-        target = self.battery_config.charge_target_fraction
+        dispatch_soc = self.battery_config.dispatch_soc_fraction
         for robot in self.robots.values():
             if (robot.phase == 'WAITING_FOR_CHARGER'
                     and self.charging.phase.get(robot.robot_id) == 'DOCKING'):
@@ -740,11 +803,10 @@ class Stage79Engine:
                 self._event('BATTERY_LOW', robot_id=robot.robot_id,
                             soc_percent=round(state.soc_percent, 3))
                 robot.battery_alert = 'LOW'
-            if state.soc < target and self.charging_enabled:
-                if not self.charging.owns(robot.robot_id):
+            if state.soc < dispatch_soc:
+                if self.charging_enabled:
                     self._begin_charge(robot)
-            elif state.soc < self.battery_config.dispatch_soc_fraction:
-                if robot.battery_alert != 'CHARGER_UNAVAILABLE':
+                elif robot.battery_alert != 'CHARGER_UNAVAILABLE':
                     robot.battery_alert = 'CHARGER_UNAVAILABLE'
                     self._event('CHARGER_UNAVAILABLE', robot_id=robot.robot_id,
                                 soc_percent=round(state.soc_percent, 3),
@@ -756,7 +818,7 @@ class Stage79Engine:
                 'RETURNING_TO_CHARGE'):
             return
         state = self.batteries.get(robot.robot_id)
-        home_energy = self._home_energy_estimate(robot)
+        home_energy = self._travel_energy_estimate(robot, (robot.base.x, robot.base.y))
         dynamic_threshold = self.battery_config.return_soc_fraction
         if home_energy is not None:
             dynamic_threshold = max(
@@ -775,7 +837,6 @@ class Stage79Engine:
                 robot.robot_id, remainder.energy_wh + protected):
             # The already assigned delivery remains safe including its return.
             return
-        to_home = self._home_energy_estimate(robot)
         if robot.order_id is not None:
             order = self.orders.get(robot.order_id)
             if order.status not in (OrderStatus.DELIVERED, OrderStatus.FAILED,
@@ -784,11 +845,12 @@ class Stage79Engine:
                 self.orders.fail(order_id, reason='battery feasibility lost; robot returning safely')
                 self._event('BATTERY_ORDER_ABORTED', robot_id=robot.robot_id,
                             order_id=order_id, reason='remaining delivery plus charger reserve infeasible')
-        if to_home is not None and self.batteries.can_complete(
-                robot.robot_id, to_home + protected):
-            robot.phase = 'RETURNING_TO_CHARGE'
-            self._set_route(robot, (robot.base.x, robot.base.y), 'LOW_BATTERY_RETURN')
-            self._event('BATTERY_SAFE_RETURN', robot_id=robot.robot_id)
+        if home_energy is not None and home_energy + protected <= state.remaining_wh:
+            if robot.phase != 'RETURNING':
+                robot.order_id = None
+                robot.phase = 'RETURNING'
+                self._set_route(robot, (robot.base.x, robot.base.y), 'LOW_BATTERY_RETURN')
+                self._event('BATTERY_SAFE_RETURN', robot_id=robot.robot_id)
         else:
             self._fail(robot, 'critical battery and no feasible return path')
 
@@ -799,7 +861,7 @@ class Stage79Engine:
         angle = abs(math.atan2(math.sin(new_pose.theta - old_pose.theta),
                                math.cos(new_pose.theta - old_pose.theta)))
         now_s = (self.clock.now() + self.clock.dt_us) / 1e6
-        used = self.batteries.update_motion(robot.robot_id, distance, angle, dt, now_s)
+        self.batteries.update_motion(robot.robot_id, distance, angle, dt, now_s)
         if robot.order_id is not None and robot.phase not in ('IDLE', 'FAULT'):
             robot.workload_seconds += dt
         if self.charging_enabled and self.charging.phase.get(robot.robot_id) == 'CHARGING':
@@ -809,15 +871,19 @@ class Stage79Engine:
                                (station.pose.x, station.pose.y)) <= .12
             stationary = distance <= 1e-9 and angle <= 1e-9
             if docked and stationary and self._pedestrian_clear_for_docking(robot, station):
-                gained = self.batteries.charge(
+                self.batteries.charge(
                     robot.robot_id, dt, docked=True, stationary=True)
-                if gained > 0 and self.batteries.get(robot.robot_id).soc >= self.battery_config.charge_target_fraction:
+                if self.batteries.get(robot.robot_id).soc >= self.battery_config.charge_target_fraction:
                     self.charging.mark_complete(robot.robot_id)
                     robot.phase = 'IDLE'
                     robot.battery_alert = ''
                     self._event('CHARGING_COMPLETE', robot_id=robot.robot_id,
                                 station_id=station_id,
                                 soc_percent=round(self.batteries.get(robot.robot_id).soc_percent, 3))
+                    if math.dist((station.pose.x, station.pose.y),
+                                 (robot.base.x, robot.base.y)) > .12:
+                        robot.phase = 'RETURNING'
+                        self._set_route(robot, (robot.base.x, robot.base.y), 'RETURN')
             elif not docked:
                 self._event('CHARGER_DOCK_LOST', robot_id=robot.robot_id,
                             station_id=station_id)
@@ -836,7 +902,7 @@ class Stage79Engine:
                                 station_id=station.station_id)
         self._battery_emergency(robot)
         if self.batteries.get(robot.robot_id).remaining_wh <= 1e-9 and robot.phase not in (
-                'CHARGING', 'IDLE', 'FAULT'):
+                'CHARGING', 'IDLE', 'FAULT', 'WAITING_FOR_CHARGER'):
             self.battery_events.append({"tick": self.clock.tick,
                                         "robot_id": robot.robot_id,
                                         "event": "DEPLETED"})
@@ -877,6 +943,20 @@ class Stage79Engine:
                 }
         return result
 
+    def _can_offer_battery_robot(self, robot):
+        robot_id = robot.robot_id
+        if self.batteries.get(robot_id).soc <= self.battery_config.dispatch_soc_fraction:
+            return False
+        phase = self.charging.phase.get(robot_id)
+        if robot.phase == 'IDLE':
+            return not self.charging.owns(robot_id) or phase == 'CHARGE_COMPLETE'
+        if robot.phase != 'CHARGING' or phase != 'CHARGING':
+            return False
+        station = self.charging.stations[self.charging.robot_station[robot_id]]
+        # Borrowed pads must still send the robot back to its own base first.
+        return (station.pose == robot.base
+                and math.dist((robot.pose.x, robot.pose.y), (station.pose.x, station.pose.y)) <= .12)
+
     def _dispatch(self):
         if self.traffic_mode != "coordinated":
             if any(r.phase == 'WAITING_FOR_AISLE' for r in self.robots.values()):
@@ -885,11 +965,12 @@ class Stage79Engine:
             assignments = self.scheduler.dispatch()
         else:
             available = [rid for rid in self.fleet.available_ids()
-                         if self.robots[int(rid)].phase == 'IDLE'
-                         and self.batteries.get(rid).soc >= self.battery_config.dispatch_soc_fraction
-                         and (not self.charging.owns(rid)
-                              or self.charging.phase.get(int(rid)) == 'CHARGE_COMPLETE')]
+                         if self._can_offer_battery_robot(self.robots[int(rid)])]
+            if not available:
+                return
             queued = self.scheduler.queue.order_ids()
+            if not queued:
+                return
             batch_orders = queued[:max(4, 4 * len(available))]
             metrics = self._pair_metrics(available, batch_orders)
             if self.intelligent_allocation_enabled:
@@ -903,8 +984,9 @@ class Stage79Engine:
                 # exactly on the legacy scheduler path above.
                 pairs = []
                 used = set()
+                idle_first = sorted(available, key=lambda rid: (self.robots[int(rid)].phase != 'IDLE', rid))
                 for order_id in batch_orders:
-                    robot_id = next((rid for rid in sorted(available)
+                    robot_id = next((rid for rid in idle_first
                                      if rid not in used and metrics.get((int(rid), int(order_id)), {})
                                      .get("feasible", False)), None)
                     if robot_id is not None:
@@ -919,13 +1001,20 @@ class Stage79Engine:
             order = self.orders.get(assignment.order_id)
             if any(other.order_id == int(order.order_id) for other in self.robots.values() if other.robot_id != rid):
                 raise RuntimeError('Duplicate assignment of one order to multiple robots')
+            if r.phase == 'CHARGING':
+                self.charging.mark_complete(rid)
+                r.battery_alert = ''
+                self._event('CHARGING_INTERRUPTED_FOR_ORDER', robot_id=rid,
+                            station_id=self.charging.robot_station[rid],
+                            soc_percent=self.batteries.get(rid).soc_percent,
+                            order_id=int(order.order_id))
             r.order_id = int(order.order_id)
             self._event('ASSIGNED', robot_id=rid, order_id=r.order_id)
             active = sum(o.phase in ('TO_PICKUP', 'TO_CUSTOMER', 'LOADING',
                                      'UNLOADING', 'RETURNING', 'RETURNING_TO_CHARGE')
                           for o in self.robots.values())
             limit = 1 if self.traffic_mode == "exclusive" else (2 if self.traffic_mode == "standard" else len(self.robots))
-            if active >= limit:
+            if active >= limit or self._main_course_pickup_busy(r):
                 r.phase = 'WAITING_FOR_AISLE'
                 r.aisle_wait_start_tick = self.clock.tick
                 self._event('TRAFFIC_WAIT', robot_id=rid, order_id=r.order_id)
@@ -1353,11 +1442,12 @@ class Stage79Engine:
             if not self.checker.is_pose_free(r.pose.x,r.pose.y,r.pose.theta):
                 self._fail(r,'Return footprint not clear')
                 return
-            self.scheduler.complete_return(r.robot_id)
+            if self.scheduler.is_return_pending(r.robot_id):
+                self.scheduler.complete_return(r.robot_id)
             self._event('RETURNED_TO_BASE',robot_id=r.robot_id,order_id=r.order_id)
             r.phase='IDLE';r.order_id=None
             if (self.battery_enabled and self.charging_enabled
-                    and self.batteries.get(r.robot_id).soc < self.battery_config.charge_target_fraction
+                    and self.batteries.get(r.robot_id).soc < self.battery_config.dispatch_soc_fraction
                     and not self.charging.owns(r.robot_id)):
                 self._begin_charge(r)
         elif r.phase == 'RETURNING_TO_CHARGE':
@@ -1368,8 +1458,8 @@ class Stage79Engine:
                 self._fail(r, 'Charging dock arrival validation failed')
                 return
             if not self._pedestrian_clear_for_docking(r, station):
-                self.charging.cancel(r.robot_id)
                 r.phase = 'WAITING_FOR_CHARGER'
+                r.battery_alert = 'DOCKING_BLOCKED'
                 self._event('DOCKING_BLOCKED', robot_id=r.robot_id,
                             station_id=station_id)
                 return
@@ -1406,6 +1496,11 @@ class Stage79Engine:
         t=max(0.,min(1.,-(rx*vx+ry*vy)/denom)) if denom>1e-12 else 0.
         return math.hypot(rx+vx*t,ry+vy*t)-min_radius
 
+    def _static_motion_free(self, start, end):
+        return (self.grid.is_free(*self.grid.world_to_grid(end.x, end.y))
+                and self.checker.is_motion_free((start.x, start.y, start.theta),
+                                                (end.x, end.y, end.theta)))
+
     def _stationary_proposal(self, r: RobotRuntime, dt: float):
         """Hold position; brake first if still rolling (never an instantaneous stop)."""
         if abs(r.linear) > 1e-4 or abs(r.angular) > 1e-4:
@@ -1438,6 +1533,7 @@ class Stage79Engine:
         boxes += [(o.x-o.radius,o.y-o.radius,o.x+o.radius,o.y+o.radius) for o in all_dyn_list]
         dyn_moving = [MovingObstacle(o.x, o.y, o.radius) for o in all_dyn_list]
         proposals={}
+        static_checked = {}
         self.wait_graph.clear()
         self._lane_decisions()
         self._evade_pedestrians()
@@ -1475,7 +1571,19 @@ class Stage79Engine:
             perceived=r.tracker.observe(r.ekf.pose,ranges,t)
             if perceived:r.detected_ticks+=1
             untracked_dyn = [d for d in dyn_moving if not any(math.hypot(d.x - p.x, d.y - p.y) < 0.5 for p in perceived)]
-            command=r.planner.plan(r.ekf.pose,r.linear,r.angular,tuple(pedestrian_now)+tuple(perceived)+tuple(others)+tuple(untracked_dyn))
+            obstacles = tuple(pedestrian_now) + tuple(perceived) + tuple(others) + tuple(untracked_dyn)
+            command = r.planner.plan(r.ekf.pose, r.linear, r.angular, obstacles)
+            if command.safe and not command.reached and not self._static_motion_free(
+                    r.pose, advance(r.pose, command.linear, command.angular, dt)):
+                if not self._static_motion_free(r.pose, r.pose):
+                    self._fail(r, 'Current pose failed exact footprint / static map collision guard')
+                    proposals[rid] = (r.pose, 0., 0., False)
+                    continue
+                # Grid-based DWA may pick a command the exact swept footprint
+                # rejects at the edge of a counter. Try another admissible command.
+                command = r.planner.plan(
+                    r.ekf.pose, r.linear, r.angular, obstacles,
+                    command_allowed=lambda v, w: self._static_motion_free(r.pose, advance(r.pose, v, w, dt)))
             if command.reached:
                 self._arrived(r)
                 proposals[rid]=(r.pose,0.,0.,False)
@@ -1489,12 +1597,7 @@ class Stage79Engine:
                     self._note_wait(r)
             else:
                 nxt=advance(r.pose,command.linear,command.angular,dt)
-                if (not self.grid.is_free(*self.grid.world_to_grid(nxt.x,nxt.y))
-                        or not self.checker.is_motion_free((r.pose.x,r.pose.y,r.pose.theta),
-                                                           (nxt.x,nxt.y,nxt.theta))):
-                    self._fail(r,'Exact footprint / static map collision guard')
-                    proposals[rid]=(r.pose,0.,0.,False)
-                    continue
+                static_checked[rid] = nxt
                 if abs(command.linear) < .02 and abs(r.linear) < .02 and abs(command.angular) < .05:
                     r.stalls += 1
                     self._note_wait(r)
@@ -1543,6 +1646,11 @@ class Stage79Engine:
         for rid,r in self.robots.items():
             nxt,v,w=accepted[rid]
             if r.phase=='FAULT':continue
+            # Yield braking may replace the planned command. Validate that
+            # replacement before applying its movement, too.
+            if nxt != r.pose and nxt != static_checked.get(rid) and not self._static_motion_free(r.pose, nxt):
+                nxt, v, w = r.pose, 0., 0.
+                r.blocked_reason = 'Exact footprint rejected proposed movement'
             # Validate pedestrian clearance independently of LiDAR estimates.
             pedestrian_next = tuple(self.pedestrians(t+dt))
             for index, p in enumerate(pedestrian_next):
@@ -1629,8 +1737,8 @@ class Stage79Engine:
                            'fleet_available':(self.fleet.is_available(r.robot_id)
                                               and r.phase == 'IDLE'
                                               and (not self.battery_enabled
-                                                   or battery_states[r.robot_id]['soc_percent']
-                                                   >= self.battery_config.dispatch_soc_fraction * 100)
+                                                   or self.batteries.get(r.robot_id).soc
+                                                   > self.battery_config.dispatch_soc_fraction)
                                               and (not self.charging.owns(r.robot_id)
                                                    or self.charging.phase.get(r.robot_id) == 'CHARGE_COMPLETE')),
                            'battery':battery_states[r.robot_id] if self.battery_enabled else None,

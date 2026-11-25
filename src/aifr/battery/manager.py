@@ -48,7 +48,7 @@ class BatteryConfig:
         if self.minimum_soh <= 0:
             raise ValueError("minimum_soh must be positive")
         if not (self.critical_soc_fraction <= self.return_soc_fraction <= self.low_soc_fraction
-                <= self.dispatch_soc_fraction <= self.charge_target_fraction):
+                and self.return_soc_fraction <= self.dispatch_soc_fraction <= self.charge_target_fraction):
             raise ValueError("battery SOC thresholds are inconsistent")
         if self.reserve_fraction + self.protected_arrival_fraction >= 1:
             raise ValueError("combined reserves must be less than usable capacity")
@@ -112,6 +112,13 @@ class BatteryManager:
 
     def get(self, robot_id: int) -> BatteryState:
         return self.states[int(robot_id)]
+
+    def set_soc_percent(self, robot_id: int, percent: float) -> None:
+        """Set stored energy without changing battery health or usage history."""
+        if not math.isfinite(percent) or not 0 <= percent <= 100:
+            raise ValueError("battery percentage must be between 0 and 100")
+        state = self.get(robot_id)
+        state.remaining_wh = state.usable_capacity_wh * (percent / 100.0)
 
     def add_robot(self, robot_id: int) -> BatteryState:
         robot_id = int(robot_id)

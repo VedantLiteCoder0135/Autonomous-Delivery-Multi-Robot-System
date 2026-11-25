@@ -124,6 +124,10 @@ class ChargingManager:
             self.phase[robot_id] = "UNAVAILABLE_NO_CHARGER"
             return self.phase[robot_id]
         if robot_id in self.robot_station:
+            if self.phase.get(robot_id) == "CHARGE_COMPLETE":
+                station_id = self.robot_station[robot_id]
+                self.phase[robot_id] = ("CHARGER_FAILED" if station_id in self.failed_stations
+                                        else "DOCKING")
             return self.phase.get(robot_id, "RESERVED")
         if robot_id not in self.queue:
             self.queue.append(robot_id)

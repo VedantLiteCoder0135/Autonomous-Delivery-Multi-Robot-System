@@ -45,6 +45,7 @@ class Customer:
     vy: float = 0.0
     transition_elapsed: float = 0.0
     exit_target: tuple[float, float] | None = None
+    cash_slot: tuple[float, float] | None = None
 
 
 class CustomerFlow:
@@ -57,6 +58,7 @@ class CustomerFlow:
         self.env = engine.env
         self.walking_speed = walking_speed
         self.payment_seconds = payment_seconds
+        self.cash_queue_slots = ()
         self.customers: dict[int, Customer] = {}
         self.next_id = 1
         self.max_per_table = 4
@@ -147,6 +149,8 @@ class CustomerFlow:
         raise ValueError(f'No fourth collision-separated seat anchor available for {table}')
 
     def _goal(self, c):
+        if c.phase == 'TO_CASH_QUEUE':
+            return c.cash_slot
         if c.phase == 'TO_CASH':
             return self.cash
         if c.phase == 'TO_EXIT':
@@ -272,16 +276,53 @@ class CustomerFlow:
             return False
         if any(math.hypot(x-r.pose.x,y-r.pose.y)<.65 for r in self.engine.robots.values()):
             return False
-        # CASH is a single-server resource. Allow one customer in the cashier
-        # corridor at a time, including arrivals from different entrances.
-        if any(c.phase in ('TO_CASH','PAYING') for c in self.customers.values()):
-            return False
-        return True
+        if self.cash_queue_slots:
+            return self._free_cash_slot() is not None or not self._cash_busy()
+        return not self._cash_busy()
+
+    def _cash_busy(self):
+        return any(c.phase in ('TO_CASH', 'PAYING') for c in self.customers.values())
+
+    def _free_cash_slot(self):
+        reserved = {c.cash_slot for c in self.customers.values() if c.cash_slot}
+        return next((slot for slot in self.cash_queue_slots if slot not in reserved), None)
+
+    def add_rush(self, *, count: int, station: str, entrance: str | None = None):
+        if not self.customer_seating_enabled:
+            raise ValueError('Rush arrivals require chair seating')
+        if count < 1 or len(self.customers) + count > self.max_customers:
+            raise ValueError('Customer admission capacity reached')
+        if station not in self.engine.pickups or (entrance is not None and entrance not in self.entrance_points):
+            raise ValueError('Choose a valid entrance and food station')
+        if not self.cash_queue_slots:
+            # The west side of the V13 CASH approach leaves the counter exit
+            # open to the east. Use only validated, separated floor cells.
+            x, y = self.cash
+            slots = [self._nearest_free(x - 1., y + offset, radius=.25)
+                     for offset in (.65, 1.25, 1.85)]
+            if any(self.grid.world_to_grid(*slot) not in self.reachable for slot in slots):
+                raise ValueError('No connected CASH queue on this map')
+            if any(math.dist(a, b) < .5 for i, a in enumerate(slots) for b in slots[i + 1:]):
+                raise ValueError('CASH queue positions are too close together')
+            self.cash_queue_slots = tuple(slots)
+            self.walking_speed = max(self.walking_speed, 1.15)
+        entrances = [entrance] if entrance is not None else sorted(
+            self.entrance_points, key=lambda name: math.dist(self.entrance_points[name], self.cash))
+        return [self.add(entrance=entrances[i % len(entrances)], station=station)
+                for i in range(count)]
 
     def _admit(self, c):
         c.x,c.y=self.entrance_points[c.entrance]
-        self._set_route(c,self.cash)
-        c.phase='TO_CASH'
+        # Serve a customer already waiting at CASH before sending a fresh arrival.
+        if self.cash_queue_slots and (self._cash_busy() or any(
+                other.phase == 'CASH_QUEUE' for other in self.customers.values())):
+            c.cash_slot = self._free_cash_slot()
+        if c.cash_slot is not None:
+            self._set_route(c, c.cash_slot)
+            c.phase = 'TO_CASH_QUEUE'
+        else:
+            self._set_route(c, self.cash)
+            c.phase = 'TO_CASH'
         self.engine._event('CUSTOMER_ENTERED',customer_id=c.customer_id,
                            entrance=c.entrance,table=c.table)
 
@@ -380,7 +421,7 @@ class CustomerFlow:
                 # Two walkers meeting head-on: the later arrival (higher id) gives way,
                 # the other holds its ground. Seated people never move, so always avoid them.
                 holds_ground = (walker is not None and not robot_hit
-                                and walker.phase in ('TO_CASH','PAYING','TO_TABLE','TO_EXIT')
+                                and walker.phase in ('TO_CASH','TO_CASH_QUEUE','PAYING','TO_TABLE','TO_EXIT')
                                 and walker.customer_id > c.customer_id)
                 break
             c.x,c.y=nx,ny
@@ -450,8 +491,6 @@ class CustomerFlow:
         return done
 
     def _seating_step(self, dt, now_real_s):
-        # No new queue implementation: reserved customers retain the original
-        # entrance FIFO admission, and seatless customers wait non-physically.
         for c in list(self.customers.values()):
             if c.order_id is not None and self.engine.orders.get(c.order_id).status.name in (
                     'CANCELLED', 'FAILED'):
@@ -459,9 +498,14 @@ class CustomerFlow:
                 continue
             if c.phase in ('QUEUED', 'LEFT'):
                 continue
-            if c.phase == 'TO_CASH':
+            if c.phase == 'TO_CASH_QUEUE':
+                if self._walk(c, dt):
+                    c.phase = 'CASH_QUEUE'
+                    self.engine._event('CUSTOMER_JOINED_CASH_QUEUE', customer_id=c.customer_id)
+            elif c.phase == 'TO_CASH':
                 if self._walk(c, dt):
                     c.phase = 'PAYING'
+                    c.cash_slot = None
                     self.engine._event('CUSTOMER_AT_CASH', customer_id=c.customer_id)
             elif c.phase == 'PAYING':
                 c.cash_wait += dt
@@ -517,6 +561,13 @@ class CustomerFlow:
                                        order_id=c.order_id)
                     self.meals.remove(c.customer_id)
                     del self.customers[c.customer_id]
+        if self.cash_queue_slots and not self._cash_busy():
+            waiting_at_cash = [c for c in self.customers.values() if c.phase == 'CASH_QUEUE']
+            if waiting_at_cash:
+                # Frontmost queue position goes first.
+                head = min(waiting_at_cash, key=lambda c: self.cash_queue_slots.index(c.cash_slot))
+                self._set_route(head, self.cash)
+                head.phase = 'TO_CASH'
         for waiting in sorted((c for c in self.customers.values()
                                if c.phase == 'QUEUED'), key=lambda c: c.customer_id):
             if self._reserve_waiting(waiting) and self._entrance_available(waiting.entrance):

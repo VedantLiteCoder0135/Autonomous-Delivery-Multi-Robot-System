@@ -83,7 +83,7 @@ def update_customer_pose(customer, collection):
     f = seating_fraction(customer.phase, customer.transition_elapsed)
     root.location = (customer.x, customer.y, 0)
     heading = customer.seat_heading
-    if customer.phase in ('TO_CASH', 'TO_TABLE', 'TO_EXIT'):
+    if customer.phase in ('TO_CASH', 'TO_CASH_QUEUE', 'TO_TABLE', 'TO_EXIT'):
         if customer.route_index < len(customer.route):
             tx, ty = customer.route[customer.route_index]
             dx, dy = tx - customer.x, ty - customer.y

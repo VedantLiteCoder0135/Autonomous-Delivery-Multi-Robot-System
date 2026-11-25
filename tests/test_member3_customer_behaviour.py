@@ -1,4 +1,5 @@
 """Member 3 regression: real scene geometry and real order identities."""
+import math
 from pathlib import Path
 import random
 
@@ -316,3 +317,34 @@ def test_four_customers_physically_reach_four_chairs_at_same_table(world):
     assert all(flow.customers[i].phase == 'SEATED' for i in ids)
     assert len({flow.customers[i].seat_id for i in ids}) == 4
     assert flow.seating.counts()['T11'] == 4
+
+
+def test_rush_arrivals_keep_single_cash_counter_and_build_ready_backlog(world):
+    baseline_engine, baseline, _ = build(world, seed=23)
+    rush_engine, rush, _ = build(world, seed=23)
+    doors = sorted(baseline.entrance_points,
+                   key=lambda name: math.dist(baseline.entrance_points[name], baseline.cash))
+    for i in range(36):
+        baseline.add(entrance=doors[i % len(doors)], station='SANDWICH')
+    ids = rush.add_rush(count=36, station='SANDWICH')
+    assert len({rush.customers[cid].seat_id for cid in ids}) == 36
+    assert {rush.customers[cid].entrance for cid in ids} == set(doors)
+
+    visible_queue = False
+    for _ in range(2400):
+        baseline.step(.05)
+        rush.step(.05)
+        phases = [c.phase for c in rush.customers.values()]
+        assert sum(phase in ('TO_CASH', 'PAYING') for phase in phases) <= 1
+        slots = [c.cash_slot for c in rush.customers.values() if c.cash_slot]
+        assert len(set(slots)) == len(slots) <= 3
+        visible_queue |= 'CASH_QUEUE' in phases
+
+    assert visible_queue
+    ready = lambda engine: sum(order.status is OrderStatus.READY for order in engine.orders.all_orders())
+    assert ready(rush_engine) >= 2 * ready(baseline_engine) > 0
+    for _ in range(4000):
+        rush.step(.05)
+        if ready(rush_engine) == 36:
+            break
+    assert ready(rush_engine) == 36

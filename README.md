@@ -2,20 +2,22 @@
 
 A Python-based robotics simulation for autonomous food delivery inside an L-shaped cafeteria. Robots receive food orders, navigate between counters and tables, avoid obstacles, coordinate with other robots, and **return to their assigned base before becoming available for another order**.
 
-The project uses the recovered **Cafeteria V14** environment, a modular robotics engine, and a Blender-native interactive control panel (plus the original optional browser dashboard). The integrated **Stages 1–9** simulation runs in Python independently of Blender. The Blender-native controller now runs the same fixed-step Python engine directly inside Blender. It is not an independent physics simulator; GUI verification must be performed locally.
+The live Blender controller runs the fixed-step **Stages 1–9** Python engine
+inside the recovered **Cafeteria V13** scene. The engine also runs independently
+of Blender, with an optional browser dashboard.
 
 ## Features
 
 | Area | Current implementation |
 |---|---|
 | Orders and scheduling | READY-time FCFS queue, robot assignment, order lifecycle and event logging |
-| Cafeteria mapping | V14 geometry, occupancy grid, pickup/drop-off waypoints, **four wall-verified entrances** |
+| Cafeteria mapping | Exported geometry, occupancy grid, pickup/drop-off waypoints, **four wall-verified entrances** |
 | Global navigation | A* path planning and ALNS-based route-segment optimization |
 | Local navigation | Dynamic Window Approach (DWA), kinematic motion and collision checks |
 | Perception | Simulated LiDAR, basic obstacle tracking and EKF pose estimation |
 | Fleet coordination | 1–4 robots, conservative traffic/yielding logic and collision checks |
 | Robot lifecycle | Pickup → delivery → **return to base** → available for reassignment |
-| Monitoring | Blender-native UI with live customers, unique orders, robots, traffic diagnostics and speed controls; optional browser dashboard |
+| Monitoring | Blender-native UI with customers, orders, battery and charger telemetry, traffic diagnostics, and speed controls |
 
 ## Architecture at a glance
 
@@ -24,7 +26,7 @@ flowchart TD
     UI[Blender live UI / CLI / optional local dashboard] --> ORD[Orders and READY queue]
     ORD --> SCH[FCFS scheduler and fleet registry]
     SCH --> ENG[Stage 7–9 simulation engine]
-    MAP[V14 geometry and occupancy grid] --> ROUTE[A* and ALNS route optimization]
+    MAP[Exported geometry and occupancy grid] --> ROUTE[A* and ALNS route optimization]
     ROUTE --> ENG
     SENS[Simulated LiDAR / odometry] --> EST[Obstacle tracking / EKF]
     EST --> ENG
@@ -109,7 +111,7 @@ The ALNS objective decreased by approximately **10%** in this scenario; that is 
 
 ```text
 AIFR_Project/
-├── AIFR_Cafeteria_V14_Recovered.blend   # Original recovered scene
+├── AIFR_Cafeteria_V13_Recovered.blend   # Recovered live demo scene
 ├── data/reference_cafeteria/          # Stage 1–6 extracted environment, grid, report
 ├── src/aifr/
 │   ├── common/                        # Events, clock, shared types
@@ -148,12 +150,49 @@ Run from the Git-connected repository root:
 /Applications/Blender.app/Contents/MacOS/Blender "$(pwd)/AIFR_Cafeteria_V13_Recovered.blend" --python "$(pwd)/tools/blender_integration_live.py"
 ```
 
-Open **N → AIFR** in the 3D viewport. Add customers via one of four doors,
-watch them queue at CASH, pay, sit at a reserved position and create an
-individual food delivery order. The order is READY only after seating.
-Directly add robots or manual orders, pause, reset, and select 1×–16× speed
-targets. Shared-aisle traffic is deliberately serialized for safety; this
-is not unconstrained multi-robot traffic optimization.
+Open **N → AIFR** in the 3D viewport.
+
+1. Click **Add Robot** at the top of the sidebar to create Robot 2.
+   Under **Robot Battery & Charging**, select Robot 2, set **Battery %**
+   to **14**, then click **Apply Battery Level**. The sidebar and floating
+   label reflect the battery manager immediately.
+2. Click **Start** or **Step** to run the engine's decision loop. A low robot
+   reserves a charger and drives there if it is away from a pad. A robot already
+   parked on its base charger can start charging there. By default, idle robots
+   start charging only below 15% and finish at 90% if no feasible order is
+   assigned first. Above 15%, a robot charging at its own base can leave when
+   selected for an order that fits its available energy and reserve. An idle
+   robot above the cutoff stays idle if it cannot safely take a waiting trip.
+   Look for the labeled pads and the sidebar queue.
+   To see a physical return, keep Robot 1 charging so Robot 2 takes a customer
+   order, then apply 14% to Robot 2 just after it leaves its base.
+3. Set **Consumption multiplier** and click **Apply Consumption** to change
+   the energy used for driving, turning and standby. **Restore Battery Defaults**
+   restores the live defaults while preserving each robot's current charge.
+   The live defaults use 10% more energy for driving, turning and standby than
+   the shared engine defaults. Charging from 15% to 90% still takes roughly
+   two simulated hours. High consumption multipliers can offset the charger's
+   output.
+4. Select an entrance or use **Automatic**, select a **Food station**, and
+   click **Add Customer**. The customer pays, sits in a randomly reserved chair,
+   then becomes eligible for delivery at the chair's table. Once served, the
+   customer eats for 20–40 real-world seconds and releases the seat after
+   standing and clearing it. Simulation speeds from 1× to 16× set a wall-clock
+   target for fixed physics ticks. Busy scenes can run below the target when
+   the computer cannot process the ticks in time. The eating deadline uses real
+   time at every speed.
+
+For rush hour, set **Entrance** to **Automatic**, choose a food station, and
+click **Start Rush**. The default batch is 36 customers. Rush arrivals are
+spread across the four doors and fill three standing positions near **CASH**.
+One customer pays at a time while the next customers are already inside the
+cafeteria. Customers walk at 1.15 m/s during the rush and their orders become
+ready after they sit. **Reset** restores the normal arrival flow.
+
+Chargers double as base parking spots. A fully charged robot at its own base
+can accept work immediately, and its charger reservation clears when it
+physically leaves the pad. Robots that cannot safely drive to their base on
+the remaining charge may fault. Use **Reset** to start a fresh demonstration.
 
 For repeatable acceptance runs and current limitations, see
 [Integration verification](INTEGRATION_VERIFICATION.md).
